@@ -1,0 +1,66 @@
+# ============================================
+# OS Generated Files
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ============================================
+# Go Build Artifacts
+# ============================================
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/api
+/worker
+
+# Test binary
+*.test
+
+# Output of go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# ============================================
+# IDE / Editor
+# ============================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ============================================
+# Environment Variables (含敏感資訊)
+# ============================================
+.env
+.env.local
+.env.*.local
+.docker/.env.*
+!.docker/.env.*.example
+
+# ============================================
+# Data / Runtime Files
+# ============================================
+data/
+*.log
+logs/
+
+# ============================================
+# Docker Volumes / Local Data
+# ============================================
+.docker/data/
+
+# ============================================
+# Attachments (本地測試產生的附件)
+# ============================================
+attachments/

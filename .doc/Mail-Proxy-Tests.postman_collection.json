@@ -1,0 +1,1056 @@
+{
+  "info": {
+    "_postman_id": "mail-proxy-api-tests",
+    "name": "Mail Proxy API Tests",
+    "description": "企業級郵件代理系統 API 測試套件\n\n## 測試涵蓋範圍\n\n### Contract Testing (契約測試)\n- JSON Schema 驗證確保回應結構一致性\n- 資料型別驗證\n\n### Data-Driven Testing (資料驅動測試)\n- 使用 Collection Variables 進行多組輸入測試\n- 邊界條件測試\n\n### 驗證項目\n- ✅ 狀態碼驗證 (200, 201, 400, 401, 404, 500)\n- ✅ Response Schema 驗證\n- ✅ 業務邏輯驗證\n- ✅ 效能指標 (SLA < 2000ms)\n- ✅ 安全性驗證 (認證授權)\n\n## 使用方式\n1. 匯入此 Collection 到 Postman\n2. 設定環境變數 `base_url` 和 `admin_token`\n3. 執行 Collection Runner 進行完整測試",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "type": "string",
+      "description": "MIS Admin Token (admin 權限)"
+    },
+    {
+      "key": "client_token",
+      "value": "",
+      "type": "string",
+      "description": "一般 Client Token (mail:send, mail:read 權限)"
+    },
+    {
+      "key": "created_mail_id",
+      "value": "",
+      "type": "string",
+      "description": "動態儲存已建立的 mail_id"
+    },
+    {
+      "key": "created_client_id",
+      "value": "",
+      "type": "string",
+      "description": "動態儲存已建立的 client_id"
+    },
+    {
+      "key": "sla_threshold_ms",
+      "value": "2000",
+      "type": "string",
+      "description": "SLA 回應時間閾值 (毫秒)"
+    },
+    {
+      "key": "delay_ms",
+      "value": "500",
+      "type": "string",
+      "description": "每個請求之間的延遲 (毫秒)"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global Pre-request Script",
+          "// 設定請求開始時間用於效能監控",
+          "pm.variables.set('requestStartTime', Date.now());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global Test Script - 效能監控",
+          "const responseTime = pm.response.responseTime;",
+          "const slaThreshold = parseInt(pm.collectionVariables.get('sla_threshold_ms') || '2000');",
+          "",
+          "pm.test(`[SLA] Response time < ${slaThreshold}ms`, function () {",
+          "    pm.expect(responseTime).to.be.below(slaThreshold);",
+          "});",
+          "",
+          "// 記錄效能指標到 Console",
+          "console.log(`[Performance] ${pm.info.requestName}: ${responseTime}ms`);",
+          "",
+          "// 請求間隔延遲 (避免 DB 寫入競爭)",
+          "const delayMs = parseInt(pm.collectionVariables.get('delay_ms') || '500');",
+          "if (delayMs > 0) {",
+          "    const start = Date.now();",
+          "    while (Date.now() - start < delayMs) {",
+          "        // Blocking delay - 等待 DB 寫入完成",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Setup",
+      "item": [
+        {
+          "name": "0.1 Setup - Create Test Client Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Contract Testing - Schema Validation",
+                  "const schema = {",
+                  "    type: 'object',",
+                  "    required: ['token', 'client_id', 'created_at'],",
+                  "    properties: {",
+                  "        token: { type: 'string', minLength: 50 },",
+                  "        client_id: { type: 'string', pattern: '^client_' },",
+                  "        created_at: { type: 'string', format: 'date-time' }",
+                  "    }",
+                  "};",
+                  "",
+                  "pm.test('[Contract] Response matches CreateTokenResponse schema', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('token');",
+                  "    pm.expect(jsonData).to.have.property('client_id');",
+                  "    pm.expect(jsonData).to.have.property('created_at');",
+                  "    pm.expect(jsonData.client_id).to.match(/^client_/);",
+                  "});",
+                  "",
+                  "pm.test('[Business] Token is JWT format', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    const jwtParts = jsonData.token.split('.');",
+                  "    pm.expect(jwtParts.length).to.eql(3);",
+                  "});",
+                  "",
+                  "// 儲存 Token 供後續測試使用",
+                  "if (pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('client_token', jsonData.token);",
+                  "    pm.collectionVariables.set('created_client_id', jsonData.client_id);",
+                  "    console.log('[Setup] Client token created:', jsonData.client_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"client_name\": \"Test Client - Postman\",\n    \"department\": \"QA\",\n    \"permissions\": [\"mail:send\", \"mail:read\", \"mail:cancel\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "token"]
+            }
+          }
+        }
+      ],
+      "description": "測試前置作業：建立測試用 Token"
+    },
+    {
+      "name": "1. Health Check",
+      "item": [
+        {
+          "name": "1.1 Health Check - Success",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Status Code Validation",
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "// Contract Testing - Schema Validation",
+                  "pm.test('[Contract] Response matches HealthResponse schema', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData).to.have.property('services');",
+                  "    pm.expect(jsonData.services).to.be.an('object');",
+                  "});",
+                  "",
+                  "// Business Logic Validation",
+                  "pm.test('[Business] All services are connected', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.be.oneOf(['healthy', 'ok']);",
+                  "    ",
+                  "    if (jsonData.services) {",
+                  "        const services = Object.values(jsonData.services);",
+                  "        services.forEach(status => {",
+                  "            pm.expect(status).to.be.oneOf(['connected', 'ok']);",
+                  "        });",
+                  "    }",
+                  "});",
+                  "",
+                  "// Security - No auth required",
+                  "pm.test('[Security] Health endpoint accessible without auth', function () {",
+                  "    pm.expect(pm.response.code).to.not.eql(401);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {"type": "noauth"},
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ],
+      "description": "健康檢查端點測試"
+    },
+    {
+      "name": "2. Security Tests",
+      "item": [
+        {
+          "name": "2.1 Security - Missing Token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Error response has required fields', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', false);",
+                  "    pm.expect(jsonData).to.have.property('error');",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "});",
+                  "",
+                  "pm.test('[Business] Error code is missing_token', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.error).to.eql('missing_token');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {"type": "noauth"},
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/history",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "history"]
+            }
+          }
+        },
+        {
+          "name": "2.2 Security - Invalid Token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('[Business] Error code is invalid_token', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.error).to.be.oneOf(['invalid_token', 'invalid_token_format']);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "invalid.token.here", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/history",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "history"]
+            }
+          }
+        },
+        {
+          "name": "2.3 Security - Permission Denied (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 403 Forbidden', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Error response structure', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', false);",
+                  "    pm.expect(jsonData).to.have.property('error', 'permission_denied');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"client_name\": \"Unauthorized Create\",\n    \"permissions\": [\"mail:send\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "token"]
+            },
+            "description": "一般 Client Token 嘗試建立新 Token (需要 admin 權限)"
+          }
+        },
+        {
+          "name": "2.4 Security - SQL Injection Test",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Security] SQL Injection prevented', function () {",
+                  "    // 應該返回 404 (找不到) 而非 500 (伺服器錯誤)",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 404]);",
+                  "    pm.expect(pm.response.code).to.not.eql(500);",
+                  "});",
+                  "",
+                  "pm.test('[Security] No database error exposed', function () {",
+                  "    const responseText = pm.response.text().toLowerCase();",
+                  "    pm.expect(responseText).to.not.include('sql');",
+                  "    pm.expect(responseText).to.not.include('syntax error');",
+                  "    pm.expect(responseText).to.not.include('postgresql');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/status/'; DROP TABLE mails; --",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "status", "'; DROP TABLE mails; --"]
+            }
+          }
+        }
+      ],
+      "description": "安全性測試：認證授權、輸入驗證、SQL 注入防護"
+    },
+    {
+      "name": "3. Mail API Tests",
+      "item": [
+        {
+          "name": "3.1 Send Mail - Success (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Status Code",
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "// Contract Testing",
+                  "pm.test('[Contract] Response matches SendMailResponse schema', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', true);",
+                  "    pm.expect(jsonData).to.have.property('mail_id');",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "});",
+                  "",
+                  "// Business Logic",
+                  "pm.test('[Business] mail_id is valid UUID', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;",
+                  "    pm.expect(jsonData.mail_id).to.match(uuidRegex);",
+                  "});",
+                  "",
+                  "pm.test('[Business] Status is queued', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.status).to.eql('queued');",
+                  "});",
+                  "",
+                  "// 儲存 mail_id 供後續測試使用",
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('created_mail_id', jsonData.mail_id);",
+                  "    console.log('[Test] Created mail_id:', jsonData.mail_id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"from\": \"test@company.com\",\n    \"to\": [\"recipient@example.com\"],\n    \"subject\": \"Postman Test - {{$timestamp}}\",\n    \"body\": \"This is a test email sent from Postman at {{$isoTimestamp}}\",\n    \"html\": \"<h1>Test Email</h1><p>Sent at {{$isoTimestamp}}</p>\",\n    \"metadata\": {\n        \"test_run\": \"postman\",\n        \"timestamp\": \"{{$timestamp}}\"\n    }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "send"]
+            }
+          }
+        },
+        {
+          "name": "3.2 Send Mail - Validation Error (400) - Missing To",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Error response structure', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', false);",
+                  "    pm.expect(jsonData).to.have.property('error', 'validation_error');",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "});",
+                  "",
+                  "pm.test('[Business] Error mentions required field', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.message.toLowerCase()).to.include('to');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"from\": \"test@company.com\",\n    \"subject\": \"Missing To Field\",\n    \"body\": \"This should fail validation\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "send"]
+            }
+          }
+        },
+        {
+          "name": "3.3 Send Mail - Validation Error (400) - Invalid Email",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('[Business] Error indicates invalid email', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.eql(false);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"from\": \"invalid-email\",\n    \"to\": [\"also-not-valid\"],\n    \"subject\": \"Invalid Email Test\",\n    \"body\": \"Testing email validation\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "send"]
+            }
+          }
+        },
+        {
+          "name": "3.4 Get Mail Status - Success (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response matches MailStatusResponse schema', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('mail_id');",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData).to.have.property('retry_count');",
+                  "    pm.expect(jsonData).to.have.property('last_updated');",
+                  "});",
+                  "",
+                  "pm.test('[Business] Status is valid enum value', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    const validStatuses = ['queued', 'processing', 'sent', 'failed', 'cancelled'];",
+                  "    pm.expect(validStatuses).to.include(jsonData.status);",
+                  "});",
+                  "",
+                  "pm.test('[Business] retry_count is non-negative integer', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.retry_count).to.be.a('number');",
+                  "    pm.expect(jsonData.retry_count).to.be.at.least(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/status/{{created_mail_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "status", "{{created_mail_id}}"]
+            }
+          }
+        },
+        {
+          "name": "3.5 Get Mail Status - Not Found (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Error response structure', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', false);",
+                  "    pm.expect(jsonData).to.have.property('error', 'not_found');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/status/00000000-0000-0000-0000-000000000000",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "status", "00000000-0000-0000-0000-000000000000"]
+            }
+          }
+        },
+        {
+          "name": "3.6 Get Mail History - Success (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response matches MailHistoryResponse schema', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('total');",
+                  "    pm.expect(jsonData).to.have.property('page');",
+                  "    pm.expect(jsonData).to.have.property('limit');",
+                  "    pm.expect(jsonData).to.have.property('data');",
+                  "    pm.expect(jsonData.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('[Business] Pagination values are correct', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.page).to.eql(1);",
+                  "    pm.expect(jsonData.limit).to.eql(10);",
+                  "    pm.expect(jsonData.total).to.be.a('number');",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Each mail item has required fields', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.data.length > 0) {",
+                  "        jsonData.data.forEach(mail => {",
+                  "            pm.expect(mail).to.have.property('id');",
+                  "            pm.expect(mail).to.have.property('status');",
+                  "            pm.expect(mail).to.have.property('created_at');",
+                  "        });",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/history?page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "history"],
+              "query": [
+                {"key": "page", "value": "1"},
+                {"key": "limit", "value": "10"}
+              ]
+            }
+          }
+        },
+        {
+          "name": "3.7 Get Mail History - With Status Filter",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Business] All returned mails have filtered status', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.data.length > 0) {",
+                  "        jsonData.data.forEach(mail => {",
+                  "            pm.expect(mail.status).to.eql('queued');",
+                  "        });",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/history?status=queued",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "history"],
+              "query": [{"key": "status", "value": "queued"}]
+            }
+          }
+        },
+        {
+          "name": "3.8 Batch Send Mail - Success (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response matches BatchSendResponse schema', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', true);",
+                  "    pm.expect(jsonData).to.have.property('batch_id');",
+                  "    pm.expect(jsonData).to.have.property('results');",
+                  "    pm.expect(jsonData.results).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('[Business] All batch items are queued', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.results.length).to.eql(2);",
+                  "    jsonData.results.forEach(result => {",
+                  "        pm.expect(result).to.have.property('mail_id');",
+                  "        pm.expect(result).to.have.property('status', 'queued');",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"mails\": [\n        {\n            \"from\": \"batch@company.com\",\n            \"to\": [\"user1@example.com\"],\n            \"subject\": \"Batch Test 1 - {{$timestamp}}\",\n            \"body\": \"Batch email 1\"\n        },\n        {\n            \"from\": \"batch@company.com\",\n            \"to\": [\"user2@example.com\"],\n            \"subject\": \"Batch Test 2 - {{$timestamp}}\",\n            \"body\": \"Batch email 2\"\n        }\n    ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/send/batch",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "send", "batch"]
+            }
+          }
+        },
+        {
+          "name": "3.9 Cancel Mail - Cannot Cancel (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// 如果郵件已經被處理，應該返回 400",
+                  "// 如果郵件還在 queued 狀態，會返回 200",
+                  "pm.test('[Contract] Response has success field', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success');",
+                  "});",
+                  "",
+                  "if (pm.response.code === 400) {",
+                  "    pm.test('[Business] Error is cannot_cancel', function () {",
+                  "        const jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.error).to.eql('cannot_cancel');",
+                  "    });",
+                  "}",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('[Business] Mail is cancelled', function () {",
+                  "        const jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.status).to.eql('cancelled');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "DELETE",
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/cancel/{{created_mail_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "cancel", "{{created_mail_id}}"]
+            }
+          }
+        }
+      ],
+      "description": "郵件發送與管理 API 測試"
+    },
+    {
+      "name": "4. Auth API Tests (Admin)",
+      "item": [
+        {
+          "name": "4.1 Create Token - Success (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response matches CreateTokenResponse schema', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('token');",
+                  "    pm.expect(jsonData).to.have.property('client_id');",
+                  "    pm.expect(jsonData).to.have.property('created_at');",
+                  "});",
+                  "",
+                  "pm.test('[Business] client_id follows naming convention', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.client_id).to.match(/^client_[a-z0-9]+$/);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"client_name\": \"Auth Test Client - {{$timestamp}}\",\n    \"department\": \"Testing\",\n    \"permissions\": [\"mail:send\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "token"]
+            }
+          }
+        },
+        {
+          "name": "4.2 Create Token - Validation Error (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Error response structure', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', false);",
+                  "    pm.expect(jsonData).to.have.property('error', 'validation_error');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"client_name\": \"Missing Permissions\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "token"]
+            }
+          }
+        },
+        {
+          "name": "4.3 List Tokens - Success (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response matches ListTokensResponse schema', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('total');",
+                  "    pm.expect(jsonData).to.have.property('data');",
+                  "    pm.expect(jsonData.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Each token has required fields', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.data.length > 0) {",
+                  "        jsonData.data.forEach(token => {",
+                  "            pm.expect(token).to.have.property('id');",
+                  "            pm.expect(token).to.have.property('client_id');",
+                  "            pm.expect(token).to.have.property('client_name');",
+                  "            pm.expect(token).to.have.property('is_active');",
+                  "        });",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/tokens",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "tokens"]
+            }
+          }
+        },
+        {
+          "name": "4.4 Get Token - Success (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response matches TokenInfo schema', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('id');",
+                  "    pm.expect(jsonData).to.have.property('client_id');",
+                  "    pm.expect(jsonData).to.have.property('client_name');",
+                  "    pm.expect(jsonData).to.have.property('permissions');",
+                  "    pm.expect(jsonData).to.have.property('is_active');",
+                  "});",
+                  "",
+                  "pm.test('[Business] Permissions is array', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.permissions).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token/{{created_client_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "token", "{{created_client_id}}"]
+            }
+          }
+        },
+        {
+          "name": "4.5 Get Token - Not Found (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Error response structure', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', false);",
+                  "    pm.expect(jsonData).to.have.property('error', 'not_found');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token/client_nonexistent",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "token", "client_nonexistent"]
+            }
+          }
+        }
+      ],
+      "description": "Token 管理 API 測試 (需要 Admin 權限)"
+    },
+    {
+      "name": "5. Cleanup",
+      "item": [
+        {
+          "name": "5.1 Cleanup - Revoke Test Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Business] Token successfully revoked', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', true);",
+                  "});",
+                  "",
+                  "// 清理 Collection Variables",
+                  "pm.collectionVariables.unset('client_token');",
+                  "pm.collectionVariables.unset('created_client_id');",
+                  "pm.collectionVariables.unset('created_mail_id');",
+                  "console.log('[Cleanup] Test token revoked and variables cleared');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "DELETE",
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token/{{created_client_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "token", "{{created_client_id}}"]
+            }
+          }
+        }
+      ],
+      "description": "測試後清理作業"
+    }
+  ]
+}

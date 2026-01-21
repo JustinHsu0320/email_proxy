@@ -1,0 +1,184 @@
+# .docker/docker-compose.yml
+# 郵件代理系統本地開發環境
+
+version: '3.8'
+
+services:
+  # ============================================
+  # PostgreSQL 資料庫
+  # ============================================
+  postgresql:
+    image: postgres:15-alpine
+    container_name: mail-proxy-postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+      - ../migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # KeyDB (Redis 相容)
+  # ============================================
+  keydb:
+    image: eqalpha/keydb:latest
+    container_name: mail-proxy-keydb
+    restart: unless-stopped
+    command: keydb-server --appendonly yes
+    volumes:
+      - keydb_data:/data
+    ports:
+      - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    healthcheck:
+      test: [ "CMD", "keydb-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # RabbitMQ 消息隊列
+  # ============================================
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: mail-proxy-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "status" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ============================================
+  # API 服務
+  # ============================================
+  api:
+    build:
+      context: ..
+      dockerfile: .docker/api/Dockerfile
+    container_name: mail-proxy-api
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV}
+      - API_PORT=8080
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}?sslmode=disable
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - KEYDB_URL=keydb:6379
+      - KEYDB_STATUS_TTL_DAYS=${KEYDB_STATUS_TTL_DAYS}
+      - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID}
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET}
+      - ATTACHMENT_PATH=/app/attachments
+      - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB}
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      keydb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ============================================
+  # Worker 服務
+  # ============================================
+  worker:
+    build:
+      context: ..
+      dockerfile: .docker/worker/Dockerfile
+    container_name: mail-proxy-worker
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV}
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}?sslmode=disable
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - KEYDB_URL=keydb:6379
+      - KEYDB_STATUS_TTL_DAYS=${KEYDB_STATUS_TTL_DAYS}
+      - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID}
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET}
+      - ATTACHMENT_PATH=/app/attachments
+      - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB}
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY}
+      - WORKER_PREFETCH=${WORKER_PREFETCH}
+      - MAX_RETRY_COUNT=${MAX_RETRY_COUNT}
+    volumes:
+      - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      keydb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+volumes:
+  postgresql_data:
+  keydb_data:
+  rabbitmq_data:

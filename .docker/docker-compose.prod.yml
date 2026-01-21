@@ -1,0 +1,115 @@
+# .docker/docker-compose.prod.yml
+# Mail Proxy 生產環境配置 (API + Worker)
+# 連接 MIS 自建的 PostgreSQL、KeyDB、RabbitMQ
+
+version: '3.8'
+
+services:
+  # ============================================
+  # API 服務
+  # ============================================
+  api:
+    build:
+      context: ..
+      dockerfile: .docker/api/Dockerfile
+    container_name: mail-proxy-api
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV}
+      - API_PORT=${API_PORT}
+      - DATABASE_URL=${DATABASE_URL}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - KEYDB_URL=${KEYDB_URL}
+      - KEYDB_STATUS_TTL_DAYS=${KEYDB_STATUS_TTL_DAYS}
+      - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID}
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET}
+      - ATTACHMENT_PATH=/app/attachments
+      - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB}
+      - JWT_SECRET=${JWT_SECRET}
+      - MAIL_QUEUE_NAME=${MAIL_QUEUE_NAME}
+      - RETRY_QUEUE_NAME=${RETRY_QUEUE_NAME}
+      - FAILED_QUEUE_NAME=${FAILED_QUEUE_NAME}
+    volumes:
+      - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
+    ports:
+      - "${API_PORT}:${API_PORT}"
+    networks:
+      - mail-proxy-internal
+      - external-infra
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:${API_PORT}/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # Worker 服務
+  # ============================================
+  worker:
+    build:
+      context: ..
+      dockerfile: .docker/worker/Dockerfile
+    container_name: mail-proxy-worker
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV}
+      - DATABASE_URL=${DATABASE_URL}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - KEYDB_URL=${KEYDB_URL}
+      - KEYDB_STATUS_TTL_DAYS=${KEYDB_STATUS_TTL_DAYS}
+      - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID}
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET}
+      - ATTACHMENT_PATH=/app/attachments
+      - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB}
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY}
+      - WORKER_PREFETCH=${WORKER_PREFETCH}
+      - MAX_RETRY_COUNT=${MAX_RETRY_COUNT}
+      - MAIL_QUEUE_NAME=${MAIL_QUEUE_NAME}
+      - RETRY_QUEUE_NAME=${RETRY_QUEUE_NAME}
+      - FAILED_QUEUE_NAME=${FAILED_QUEUE_NAME}
+    volumes:
+      - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
+    networks:
+      - mail-proxy-internal
+      - external-infra
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+      # 水平擴展 Worker 實例數量
+      replicas: ${WORKER_REPLICAS:-1}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  # 內部網路 (API 與 Worker 通訊用)
+  mail-proxy-internal:
+    driver: bridge
+
+  # 外部網路 (連接 MIS 基礎設施)
+  # 請確保此網路已由 MIS 建立，或修改為正確的網路名稱
+  external-infra:
+    external: true
+    name: ${EXTERNAL_NETWORK_NAME:-infra-network}

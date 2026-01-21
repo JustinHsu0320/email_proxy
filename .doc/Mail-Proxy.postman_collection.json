@@ -1,0 +1,532 @@
+{
+  "info": {
+    "_postman_id": "mail-proxy-api-collection",
+    "name": "Mail Proxy API",
+    "description": "企業級分散式郵件發送系統 API\n\n## 認證方式\n所有 API (除了 Health Check) 都需要在 Header 攜帶 JWT Token：\n```\nAuthorization: Bearer <token>\n```\n\n## 環境變數\n- `base_url`: API 基底網址 (預設: http://localhost:8080)\n- `jwt_token`: JWT 認證 Token",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "健康檢查端點，用於確認 API 服務是否正常運作。不需要認證。"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{base_url}}/health",
+                  "host": ["{{base_url}}"],
+                  "path": ["health"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"status\": \"healthy\",\n    \"services\": {\n        \"database\": \"connected\",\n        \"keydb\": \"connected\",\n        \"rabbitmq\": \"connected\"\n    }\n}"
+            }
+          ]
+        }
+      ],
+      "description": "系統健康狀態檢查"
+    },
+    {
+      "name": "Mail",
+      "item": [
+        {
+          "name": "發送郵件",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"from\": \"sender@company.com\",\n    \"to\": [\"recipient@example.com\"],\n    \"cc\": [],\n    \"bcc\": [],\n    \"subject\": \"測試郵件\",\n    \"body\": \"這是純文字內容\",\n    \"html\": \"<h1>這是 HTML 內容</h1><p>支援 HTML 格式</p>\",\n    \"attachments\": [],\n    \"metadata\": {\n        \"campaign_id\": \"test-001\",\n        \"source\": \"api\"\n    }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "send"]
+            },
+            "description": "發送單封郵件到指定收件人。\n\n### 請求參數\n| 欄位 | 類型 | 必填 | 說明 |\n|------|------|------|------|\n| from | string | ✅ | 寄件人郵箱 |\n| to | string[] | ✅ | 收件人郵箱陣列 |\n| cc | string[] | ❌ | 副本收件人 |\n| bcc | string[] | ❌ | 密件副本收件人 |\n| subject | string | ✅ | 郵件主旨 |\n| body | string | ❌ | 純文字內容 |\n| html | string | ❌ | HTML 內容 |\n| attachments | array | ❌ | 附件 (Base64) |\n| metadata | object | ❌ | 自訂元資料 |"
+          },
+          "response": [
+            {
+              "name": "成功 - 郵件已加入隊列",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/mail/send",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "mail", "send"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"mail_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n    \"status\": \"queued\",\n    \"message\": \"郵件已加入發送隊列\"\n}"
+            },
+            {
+              "name": "驗證錯誤",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/mail/send",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "mail", "send"]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"error\": \"validation_error\",\n    \"message\": \"Key: 'SendRequest.To' Error:Field validation for 'To' failed on the 'required' tag\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "發送郵件 (含附件)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"from\": \"sender@company.com\",\n    \"to\": [\"recipient@example.com\"],\n    \"subject\": \"含附件的測試郵件\",\n    \"body\": \"請查收附件\",\n    \"attachments\": [\n        {\n            \"filename\": \"document.pdf\",\n            \"content\": \"JVBERi0xLjQKJcO...\",\n            \"content_type\": \"application/pdf\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "send"]
+            },
+            "description": "發送含附件的郵件。附件內容需使用 Base64 編碼。\n\n### 附件參數\n| 欄位 | 類型 | 必填 | 說明 |\n|------|------|------|------|\n| filename | string | ✅ | 檔案名稱 |\n| content | string | ✅ | Base64 編碼的檔案內容 |\n| content_type | string | ❌ | MIME 類型 |\n\n### 限制\n- 單一附件最大: 25MB (可透過環境變數調整)"
+          },
+          "response": []
+        },
+        {
+          "name": "批次發送郵件",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"mails\": [\n        {\n            \"from\": \"sender@company.com\",\n            \"to\": [\"user1@example.com\"],\n            \"subject\": \"批次郵件 1\",\n            \"body\": \"內容 1\"\n        },\n        {\n            \"from\": \"sender@company.com\",\n            \"to\": [\"user2@example.com\"],\n            \"subject\": \"批次郵件 2\",\n            \"body\": \"內容 2\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/send/batch",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "send", "batch"]
+            },
+            "description": "一次發送多封郵件。每封郵件會分別產生獨立的 mail_id。"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/mail/send/batch",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "mail", "send", "batch"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"batch_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n    \"results\": [\n        {\n            \"mail_id\": \"550e8400-e29b-41d4-a716-446655440001\",\n            \"status\": \"queued\"\n        },\n        {\n            \"mail_id\": \"550e8400-e29b-41d4-a716-446655440002\",\n            \"status\": \"queued\"\n        }\n    ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "查詢郵件狀態",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/status/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "status", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "550e8400-e29b-41d4-a716-446655440000",
+                  "description": "郵件 ID (UUID)"
+                }
+              ]
+            },
+            "description": "根據 mail_id 查詢郵件發送狀態。\n\n### 郵件狀態\n| 狀態 | 說明 |\n|------|------|\n| queued | 已加入隊列等待發送 |\n| processing | 正在發送中 |\n| sent | 發送成功 |\n| failed | 發送失敗 |\n| cancelled | 已取消 |"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/mail/status/550e8400-e29b-41d4-a716-446655440000",
+                  "host": ["{{base_url}}"],
+                  "path": [
+                    "api",
+                    "v1",
+                    "mail",
+                    "status",
+                    "550e8400-e29b-41d4-a716-446655440000"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"mail_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n    \"status\": \"sent\",\n    \"retry_count\": 0,\n    \"created_at\": \"2024-01-15T10:30:00Z\",\n    \"sent_at\": \"2024-01-15T10:30:05Z\",\n    \"error_message\": \"\"\n}"
+            },
+            {
+              "name": "找不到郵件",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/mail/status/invalid-id",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "mail", "status", "invalid-id"]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"error\": \"not_found\",\n    \"message\": \"Mail not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "查詢郵件歷史",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/history?page=1&limit=20&status=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "history"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "頁碼 (預設: 1)"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "每頁筆數 (預設: 20, 最大: 100)"
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "篩選狀態: queued, processing, sent, failed, cancelled"
+                }
+              ]
+            },
+            "description": "查詢該 Client 的郵件發送歷史紀錄。支援分頁與狀態篩選。"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/mail/history?page=1&limit=20",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "mail", "history"],
+                  "query": [
+                    { "key": "page", "value": "1" },
+                    { "key": "limit", "value": "20" }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"total\": 125,\n    \"page\": 1,\n    \"limit\": 20,\n    \"data\": [\n        {\n            \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n            \"from_address\": \"sender@company.com\",\n            \"to_addresses\": [\"recipient@example.com\"],\n            \"subject\": \"測試郵件\",\n            \"status\": \"sent\",\n            \"created_at\": \"2024-01-15T10:30:00Z\",\n            \"sent_at\": \"2024-01-15T10:30:05Z\"\n        }\n    ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "取消郵件",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/mail/cancel/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "mail", "cancel", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "550e8400-e29b-41d4-a716-446655440000",
+                  "description": "郵件 ID (UUID)"
+                }
+              ]
+            },
+            "description": "取消排隊中的郵件。\n\n**注意**: 只能取消狀態為 `queued` 的郵件。已發送、處理中、失敗的郵件無法取消。"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/mail/cancel/550e8400-e29b-41d4-a716-446655440000",
+                  "host": ["{{base_url}}"],
+                  "path": [
+                    "api",
+                    "v1",
+                    "mail",
+                    "cancel",
+                    "550e8400-e29b-41d4-a716-446655440000"
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"mail_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n    \"status\": \"cancelled\",\n    \"message\": \"郵件已取消\"\n}"
+            },
+            {
+              "name": "無法取消",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/mail/cancel/550e8400-e29b-41d4-a716-446655440000",
+                  "host": ["{{base_url}}"],
+                  "path": [
+                    "api",
+                    "v1",
+                    "mail",
+                    "cancel",
+                    "550e8400-e29b-41d4-a716-446655440000"
+                  ]
+                }
+              },
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"error\": \"cannot_cancel\",\n    \"message\": \"Only queued mails can be cancelled\"\n}"
+            }
+          ]
+        }
+      ],
+      "description": "郵件發送與管理 API"
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "建立 Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"client_name\": \"HR Department System\",\n    \"department\": \"HR\",\n    \"permissions\": [\"mail:send\", \"mail:read\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "token"]
+            },
+            "description": "建立新的 API Token。需要 admin 權限。\n\n### 請求參數\n| 欄位 | 類型 | 必填 | 說明 |\n|------|------|------|------|\n| client_name | string | ✅ | 客戶端名稱 |\n| department | string | ❌ | 所屬部門 |\n| permissions | string[] | ✅ | 權限列表 |\n\n### 可用權限\n- `mail:send` - 發送郵件\n- `mail:read` - 查詢郵件狀態與歷史\n- `admin` - 管理員權限 (可建立/撤銷 Token)"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/token",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "token"]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"client_id\": \"client_a1b2c3d4\",\n    \"created_at\": \"2024-01-15T10:30:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "查詢 Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "token", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "client_a1b2c3d4",
+                  "description": "Token ID 或 Client ID"
+                }
+              ]
+            },
+            "description": "查詢指定 Token 的詳細資訊。需要 admin 權限。"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/token/client_a1b2c3d4",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "token", "client_a1b2c3d4"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n    \"client_id\": \"client_a1b2c3d4\",\n    \"client_name\": \"HR Department System\",\n    \"department\": \"HR\",\n    \"permissions\": [\"mail:send\", \"mail:read\"],\n    \"is_active\": true,\n    \"created_at\": \"2024-01-15T10:30:00Z\",\n    \"last_used_at\": \"2024-01-15T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "列出所有 Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/tokens",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "tokens"]
+            },
+            "description": "列出系統中所有已建立的 Token。需要 admin 權限。"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/tokens",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "tokens"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"total\": 5,\n    \"data\": [\n        {\n            \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n            \"client_id\": \"client_a1b2c3d4\",\n            \"client_name\": \"HR Department System\",\n            \"department\": \"HR\",\n            \"is_active\": true,\n            \"created_at\": \"2024-01-15T10:30:00Z\"\n        }\n    ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "撤銷 Token",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/token/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "token", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "client_a1b2c3d4",
+                  "description": "Token ID 或 Client ID"
+                }
+              ]
+            },
+            "description": "撤銷指定的 Token，使其無法再用於 API 認證。需要 admin 權限。\n\n**注意**: 撤銷後該 Token 將立即失效，使用該 Token 的系統將無法再存取 API。"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/token/client_a1b2c3d4",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "token", "client_a1b2c3d4"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"Token 已撤銷\"\n}"
+            }
+          ]
+        }
+      ],
+      "description": "Token 管理 API (需要 admin 權限)"
+    }
+  ]
+}
