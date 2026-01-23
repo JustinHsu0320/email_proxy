@@ -12,8 +12,8 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 
-	"smtp-service/internal/config"
-	"smtp-service/internal/models"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/models"
 )
 
 // QueueService RabbitMQ 隊列服務

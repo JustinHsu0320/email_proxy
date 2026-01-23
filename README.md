@@ -1,11 +1,12 @@
 # Mail Proxy - 企業級分散式郵件發送系統
 
-企業級分散式郵件發送系統，使用 Golang + Gin 開發，透過 Microsoft Graph API 發送郵件。
+企業級分散式郵件發送系統，使用 Golang + Gin 開發，支援 Microsoft Graph API 與 SendGrid 雙路由發送郵件。
 
 ## 功能特點
 
 - 🚀 **高效能**: 羽量級 Golang Goroutine 併發實踐 Queue Worker
 - 🔐 **Microsoft OAuth 2.0**: 透過 Graph API 安全發送郵件
+- 📧 **雙郵件路由**: 根據寄件者網域自動選擇 Graph API 或 SendGrid
 - 🔄 **自動重試**: 指數退避演算法，寄信失敗最多 5 次重試
 - 📊 **狀態追蹤**: KeyDB 快取郵件狀態，14 天 TTL
 - 🐳 **容器化部署**: Docker Compose 一鍵啟動
@@ -94,6 +95,8 @@ cp .env.prod.example .env.prod
 #    - RABBITMQ_URL: RabbitMQ 連線字串
 #    - KEYDB_URL: KeyDB/Redis 連線位址
 #    - MICROSOFT_*: Microsoft OAuth 2.0 憑證
+#    - SENDGRID_API_KEY: SendGrid API Key (非組織網域寄件用)
+#    - ORG_EMAIL_DOMAIN: 組織網域 (預設: @ptc-nec.com.tw)
 #    - JWT_SECRET: API Token 簽名密鑰
 
 # 3. 確保外部網路已存在（若 MIS 尚未建立）
@@ -138,7 +141,7 @@ MICROSOFT_CLIENT_SECRET=
 docker compose -f docker-compose.dev.yml --env-file .env.dev up -d --build
 
 # 4. 取得 MIS Admin Token（開發環境）
-docker logs smtp-api 2>&1 | grep -A 20 "MIS ADMIN TOKEN"
+docker logs mail-proxy-api 2>&1 | grep -A 20 "MIS ADMIN TOKEN"
 
 # 5. 停止服務
 docker compose -f docker-compose.dev.yml --env-file .env.dev down
@@ -282,7 +285,7 @@ sudo nano /opt/scripts/cleanup-mail-attachments.sh
 # Mail Proxy 附件清理腳本
 # 刪除超過 60 天的附件資料夾
 
-ATTACHMENT_PATH="${ATTACHMENT_VOLUME_PATH:-/mnt/shared-storage/smtp-attachments}"
+ATTACHMENT_PATH="${ATTACHMENT_VOLUME_PATH:-/mnt/shared-storage/mail-proxy-attachments}"
 RETENTION_DAYS=60
 LOG_FILE="/var/log/mail-proxy-cleanup.log"
 
@@ -314,7 +317,7 @@ sudo crontab -e
 
 ```cron
 # Mail Proxy 附件清理 - 每天凌晨 1 點執行
-0 1 * * * ATTACHMENT_VOLUME_PATH=/mnt/shared-storage/smtp-attachments /opt/scripts/cleanup-mail-attachments.sh
+0 1 * * * ATTACHMENT_VOLUME_PATH=/mnt/shared-storage/mail-proxy-attachments /opt/scripts/cleanup-mail-attachments.sh
 ```
 
 **3. 驗證設定**
@@ -324,7 +327,7 @@ sudo crontab -e
 sudo crontab -l
 
 # 手動測試腳本
-sudo ATTACHMENT_VOLUME_PATH=/mnt/shared-storage/smtp-attachments /opt/scripts/cleanup-mail-attachments.sh
+sudo ATTACHMENT_VOLUME_PATH=/mnt/shared-storage/mail-proxy-attachments /opt/scripts/cleanup-mail-attachments.sh
 
 # 查看執行日誌
 tail -f /var/log/mail-proxy-cleanup.log

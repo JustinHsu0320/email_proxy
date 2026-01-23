@@ -17,14 +17,14 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"smtp-service/internal/api/routes"
-	"smtp-service/internal/config"
-	"smtp-service/internal/services"
-	"smtp-service/pkg/microsoft"
+	"mail-proxy/internal/api/routes"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/services"
+	"mail-proxy/pkg/microsoft"
 )
 
 func main() {
-	log.Println("Starting SMTP API Server...")
+	log.Println("Starting Mail Proxy API Server...")
 
 	// 載入設定
 	cfg := config.Load()
@@ -62,9 +62,6 @@ func main() {
 		cfg.MicrosoftClientSecret,
 	)
 
-	// 初始化 SMTP 服務
-	smtpService := services.NewSMTPService(cfg, oauthService)
-
 	// 初始化 Gin
 	if cfg.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -79,7 +76,6 @@ func main() {
 		Config:       cfg,
 		DB:           db,
 		OAuthService: oauthService,
-		SMTPService:  smtpService,
 		QueueService: queueService,
 		KeyDBService: keydbService,
 	})

@@ -32,11 +32,13 @@ graph TB
         W1[Worker Pool 1<br/>Golang RabbitMQ Consumer]
         W2[Worker Pool 2<br/>Golang RabbitMQ Consumer]
         W3[Worker Pool N<br/>Golang RabbitMQ Consumer]
+        ROUTER[MailRouter<br/>網域路由]
     end
 
-    subgraph "Microsoft SMTP Layer"
+    subgraph "Mail Sending Layer"
         OAUTH[Microsoft OAuth 2.0<br/>Authentication]
         MSMTP[Microsoft Graph API<br/>graph.microsoft.com]
+        SG[SendGrid API<br/>api.sendgrid.com]
     end
 
     subgraph "Storage Layer<br/>(Docker Containers)"
@@ -53,9 +55,11 @@ graph TB
     MS1 & MS2 & MS3 --> KEYDB
     
     MQ --> W1 & W2 & W3
+    W1 & W2 & W3 --> ROUTER
     
-    W1 & W2 & W3 --> OAUTH
+    ROUTER -->|組織網域| OAUTH
     OAUTH --> MSMTP
+    ROUTER -->|非組織網域| SG
     W1 & W2 & W3 --> DB
     W1 & W2 & W3 --> KEYDB
     W1 & W2 & W3 --> ATTACH
@@ -65,6 +69,8 @@ graph TB
     style DB fill:#e8f5e9
     style KEYDB fill:#fce4ec
     style ATTACH fill:#e3f2fd
+    style ROUTER fill:#fff9c4
+    style SG fill:#e8f5e9
 ```
 
 ---
@@ -75,13 +81,18 @@ graph TB
 企業級分散式郵件發送系統 (Enterprise Distributed Mail Proxy Service)
 
 ### 1.2 專案目標
-建立一個高可用、完全自建的企業級郵件發送系統，所有基礎設施均部署於企業內部 Ubuntu VM 環境，透過 Microsoft OAuth 2.0 認證後經由 Microsoft Microsoft Graph API 發送郵件，支援公司內部各部門的郵件發送需求，峰值處理能力達每分鐘 1000 封郵件。
+建立一個高可用、完全自建的企業級郵件發送系統，所有基礎設施均部署於企業內部 Ubuntu VM 環境，支援 **雙郵件路由**：
+- **組織網域 (`@ptc-nec.com.tw`)**: 透過 Microsoft Graph API 發送
+- **非組織網域**: 透過 SendGrid 第三方服務發送
+
+支援公司內部各部門的郵件發送需求，峰值處理能力達每分鐘 1000 封郵件。
 
 ### 1.3 核心需求
 - **高峰期處理能力**：每分鐘 1000 封郵件
 - **全地端部署**：所有服務運行於企業內部 Ubuntu VM (Docker 容器)
 - **水平擴展能力**：支援動態增減 Docker 容器節點
-- **Microsoft OAuth 2.0**：使用微軟認證機制發送郵件
+- **雙郵件路由**：根據寄件者網域自動選擇 Graph API 或 SendGrid
+- **Microsoft OAuth 2.0**：使用微軟認證機制發送組織郵件
 - **風險控制**：避免被標記為垃圾郵件
 - **高可用性**：99.9% SLA 保證
 
@@ -220,7 +231,7 @@ DELETE /api/v1/mail/cancel/:id
 #### 3.2.2 Token Payload 結構
 ```json
 {
-  "iss": "smtp-system",
+  "iss": "mail-proxy-system",
   "sub": "client_uuid",
   "iat": 1737216000,
   "client_id": "dept_sales_001",
@@ -345,7 +356,7 @@ flowchart TD
 ### 4.2 專案結構
 
 ```
-smtp-service/
+mail-proxy/
 ├── .docker/
 │   ├── api/
 │   │   └── Dockerfile
@@ -377,24 +388,18 @@ smtp-service/
 │   │   ├── processor.go
 │   │   └── retry.go
 │   ├── services/
-│   │   ├── mail_service.go
-│   │   ├── smtp_service.go
+│   │   ├── mail_sender.go       # MailSender interface
+│   │   ├── mail_router.go       # 網域路由服務
+│   │   ├── smtp_service.go      # GraphMailService (Microsoft Graph API)
+│   │   ├── sendgrid_service.go  # SendGridService
 │   │   ├── queue_service.go
-│   │   ├── storage_service.go
-│   │   └── oauth_service.go
+│   │   ├── keydb_service.go
+│   │   └── admin_token_service.go
 │   ├── models/
 │   │   ├── mail.go
-│   │   ├── client.go
 │   │   └── token.go
-│   ├── config/
-│   │   ├── config.go
-│   │   ├── database.go
-│   │   ├── rabbitmq.go
-│   │   ├── keydb.go
-│   │   └── oauth.go
-│   └── utils/
-│       ├── logger.go
-│       └── helpers.go
+│   └── config/
+│       └── config.go
 ├── pkg/
 │   └── microsoft/
 │       └── oauth.go          # Microsoft OAuth 2.0 實作
@@ -416,7 +421,7 @@ WORKER_CONCURRENCY=10
 WORKER_PREFETCH=10
 
 # PostgreSQL
-DATABASE_URL=postgres://user:password@localhost:5432/smtp_service?sslmode=disable
+DATABASE_URL=postgres://user:password@localhost:5432/mail_proxy?sslmode=disable
 
 # RabbitMQ
 RABBITMQ_URL=amqp://user:password@localhost:5672/
@@ -430,10 +435,14 @@ KEYDB_URL=localhost:6379
 KEYDB_PASSWORD=
 KEYDB_STATUS_TTL_DAYS=14
 
-# Microsoft OAuth 2.0
+# Microsoft OAuth 2.0 (組織網域郵件發送)
 MICROSOFT_TENANT_ID=your-tenant-id
 MICROSOFT_CLIENT_ID=your-client-id
 MICROSOFT_CLIENT_SECRET=your-client-secret
+
+# SendGrid (非組織網域郵件發送)
+SENDGRID_API_KEY=your-sendgrid-api-key
+ORG_EMAIL_DOMAIN=@ptc-nec.com.tw
 
 # Attachment
 ATTACHMENT_PATH=/app/attachments
@@ -531,7 +540,7 @@ services:
   # PostgreSQL
   postgresql:
     image: postgres:15-alpine
-    container_name: smtp-postgresql
+    container_name: mail-proxy-postgresql
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
@@ -558,7 +567,7 @@ services:
   # KeyDB
   keydb:
     image: eqalpha/keydb:latest
-    container_name: smtp-keydb
+    container_name: mail-proxy-keydb
     restart: unless-stopped
     command: keydb-server --appendonly yes
     volumes:
@@ -582,7 +591,7 @@ services:
   # RabbitMQ
   rabbitmq:
     image: rabbitmq:3.12-management-alpine
-    container_name: smtp-rabbitmq
+    container_name: mail-proxy-rabbitmq
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
@@ -612,7 +621,7 @@ services:
     build:
       context: ..
       dockerfile: .docker/api/Dockerfile
-    container_name: smtp-api
+    container_name: mail-proxy-api
     restart: unless-stopped
     environment:
       - APP_ENV=${APP_ENV}
@@ -657,7 +666,7 @@ services:
     build:
       context: ..
       dockerfile: .docker/worker/Dockerfile
-    container_name: smtp-worker
+    container_name: mail-proxy-worker
     restart: unless-stopped
     environment:
       - APP_ENV=${APP_ENV}
@@ -1209,16 +1218,16 @@ sequenceDiagram
 
 ```bash
 # 查看 API 日誌
-docker logs smtp-api
+docker logs mail-proxy-api
 
 # 查看 Worker 日誌
-docker logs smtp-worker
+docker logs mail-proxy-worker
 
 # 實時追蹤日誌
-docker logs -f smtp-worker
+docker logs -f mail-proxy-worker
 
 # 查看最近 100 行
-docker logs --tail 100 smtp-worker
+docker logs --tail 100 mail-proxy-worker
 ```
 
 日誌格式 (JSON):

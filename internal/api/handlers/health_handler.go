@@ -11,8 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"smtp-service/internal/config"
-	"smtp-service/internal/services"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/services"
 )
 
 // HealthHandler 健康檢查 Handler

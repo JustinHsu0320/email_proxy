@@ -13,25 +13,31 @@ import (
 	"os"
 	"path/filepath"
 
-	"smtp-service/internal/config"
-	"smtp-service/internal/models"
-	"smtp-service/pkg/microsoft"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/models"
+	"mail-proxy/pkg/microsoft"
 )
 
-// SMTPService SMTP 發送服務 (現使用 Graph API)
-type SMTPService struct {
+// GraphMailService Microsoft Graph API 郵件發送服務
+// 實作 MailSender interface
+type GraphMailService struct {
 	cfg          *config.Config
 	oauthService *microsoft.OAuthService
 	httpClient   *http.Client
 }
 
-// NewSMTPService 建立 SMTP 服務
-func NewSMTPService(cfg *config.Config, oauthService *microsoft.OAuthService) *SMTPService {
-	return &SMTPService{
+// NewGraphMailService 建立 Graph API 郵件服務
+func NewGraphMailService(cfg *config.Config, oauthService *microsoft.OAuthService) *GraphMailService {
+	return &GraphMailService{
 		cfg:          cfg,
 		oauthService: oauthService,
 		httpClient:   &http.Client{},
 	}
+}
+
+// Name 回傳服務名稱
+func (s *GraphMailService) Name() string {
+	return "Microsoft Graph API"
 }
 
 // GraphMailRequest Graph API 郵件請求結構
@@ -42,12 +48,12 @@ type GraphMailRequest struct {
 
 // GraphMessage Graph API 郵件訊息結構
 type GraphMessage struct {
-	Subject      string                `json:"subject"`
-	Body         GraphBody             `json:"body"`
-	ToRecipients []GraphRecipient      `json:"toRecipients"`
-	CcRecipients []GraphRecipient      `json:"ccRecipients,omitempty"`
-	BccRecipients []GraphRecipient     `json:"bccRecipients,omitempty"`
-	Attachments  []GraphAttachment     `json:"attachments,omitempty"`
+	Subject       string            `json:"subject"`
+	Body          GraphBody         `json:"body"`
+	ToRecipients  []GraphRecipient  `json:"toRecipients"`
+	CcRecipients  []GraphRecipient  `json:"ccRecipients,omitempty"`
+	BccRecipients []GraphRecipient  `json:"bccRecipients,omitempty"`
+	Attachments   []GraphAttachment `json:"attachments,omitempty"`
 }
 
 // GraphBody Graph API 郵件內容結構
@@ -68,9 +74,9 @@ type GraphEmailAddress struct {
 
 // GraphAttachment Graph API 附件結構
 type GraphAttachment struct {
-	ODataType   string `json:"@odata.type"`
-	Name        string `json:"name"`
-	ContentType string `json:"contentType"`
+	ODataType    string `json:"@odata.type"`
+	Name         string `json:"name"`
+	ContentType  string `json:"contentType"`
 	ContentBytes string `json:"contentBytes"`
 }
 
@@ -83,7 +89,7 @@ type GraphErrorResponse struct {
 }
 
 // SendMail 發送郵件 (使用 Microsoft Graph API)
-func (s *SMTPService) SendMail(job *models.MailJob) error {
+func (s *GraphMailService) SendMail(job *models.MailJob) error {
 	// 取得 OAuth 2.0 Access Token
 	accessToken, err := s.oauthService.GetAccessToken()
 	if err != nil {
@@ -129,12 +135,12 @@ func (s *SMTPService) SendMail(job *models.MailJob) error {
 	// 檢查回應 (202 Accepted 表示成功)
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		
+
 		var errResp GraphErrorResponse
 		if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error.Message != "" {
 			return fmt.Errorf("Graph API error (%s): %s", errResp.Error.Code, errResp.Error.Message)
 		}
-		
+
 		return fmt.Errorf("Graph API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -142,7 +148,7 @@ func (s *SMTPService) SendMail(job *models.MailJob) error {
 }
 
 // buildGraphRequest 建立 Graph API 請求結構
-func (s *SMTPService) buildGraphRequest(job *models.MailJob) *GraphMailRequest {
+func (s *GraphMailService) buildGraphRequest(job *models.MailJob) *GraphMailRequest {
 	// 決定內容類型
 	contentType := "text"
 	content := job.Body
@@ -191,7 +197,7 @@ func (s *SMTPService) buildGraphRequest(job *models.MailJob) *GraphMailRequest {
 }
 
 // loadAttachments 載入附件
-func (s *SMTPService) loadAttachments(job *models.MailJob, message *GraphMessage) error {
+func (s *GraphMailService) loadAttachments(job *models.MailJob, message *GraphMessage) error {
 	if len(job.Attachments) == 0 {
 		return nil
 	}

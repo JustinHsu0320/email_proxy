@@ -16,8 +16,8 @@ import (
 	"github.com/lib/pq"
 	"gorm.io/gorm"
 
-	"smtp-service/internal/config"
-	"smtp-service/internal/models"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/models"
 )
 
 // AuthHandler Token 管理 Handler
@@ -52,7 +52,7 @@ func (h *AuthHandler) CreateToken(c *gin.Context) {
 	// 建立 JWT Token (永久有效)
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"iss":         "smtp-system",
+		"iss":         "mail-proxy-system",
 		"sub":         uuid.New().String(),
 		"iat":         now.Unix(),
 		"client_id":   clientID,

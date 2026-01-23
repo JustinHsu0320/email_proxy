@@ -17,9 +17,9 @@ import (
 	"github.com/lib/pq"
 	"gorm.io/gorm"
 
-	"smtp-service/internal/config"
-	"smtp-service/internal/models"
-	"smtp-service/internal/services"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/models"
+	"mail-proxy/internal/services"
 )
 
 // MailHandler 郵件 Handler

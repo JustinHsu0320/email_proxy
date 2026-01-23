@@ -13,10 +13,10 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 	"gorm.io/gorm"
 
-	"smtp-service/internal/config"
-	"smtp-service/internal/models"
-	"smtp-service/internal/services"
-	"smtp-service/pkg/microsoft"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/models"
+	"mail-proxy/internal/services"
+	"mail-proxy/pkg/microsoft"
 )
 
 // Consumer RabbitMQ Consumer
@@ -26,7 +26,7 @@ type Consumer struct {
 	conn         *amqp.Connection
 	channel      *amqp.Channel
 	oauthService *microsoft.OAuthService
-	smtpService  *services.SMTPService
+	mailRouter   *services.MailRouter
 	keydbService *services.KeyDBService
 
 	isShutdown bool
@@ -36,12 +36,12 @@ type Consumer struct {
 }
 
 // NewConsumer 建立 Consumer
-func NewConsumer(cfg *config.Config, db *gorm.DB, oauthService *microsoft.OAuthService, smtpService *services.SMTPService, keydbService *services.KeyDBService) *Consumer {
+func NewConsumer(cfg *config.Config, db *gorm.DB, oauthService *microsoft.OAuthService, mailRouter *services.MailRouter, keydbService *services.KeyDBService) *Consumer {
 	return &Consumer{
 		cfg:          cfg,
 		db:           db,
 		oauthService: oauthService,
-		smtpService:  smtpService,
+		mailRouter:   mailRouter,
 		keydbService: keydbService,
 	}
 }
@@ -160,7 +160,7 @@ func (c *Consumer) handleMessage(msg amqp.Delivery) {
 	c.db.Model(&models.Mail{}).Where("id = ?", job.MailID).Update("status", models.MailStatusProcessing)
 
 	// 發送郵件
-	if err := c.smtpService.SendMail(&job); err != nil {
+	if err := c.mailRouter.SendMail(&job); err != nil {
 		log.Printf("Failed to send mail %s: %v", job.MailID, err)
 		c.handleRetry(ctx, msg, &job, err)
 		return

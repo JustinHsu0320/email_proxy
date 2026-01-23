@@ -15,8 +15,8 @@ import (
 	"github.com/lib/pq"
 	"gorm.io/gorm"
 
-	"smtp-service/internal/config"
-	"smtp-service/internal/models"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/models"
 )
 
 const (
@@ -146,7 +146,7 @@ func (s *AdminTokenService) regenerateToken(existingToken *models.ClientToken) e
 func (s *AdminTokenService) generateJWTToken() (string, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
-		"iss":         "smtp-system",
+		"iss":         "mail-proxy-system",
 		"sub":         uuid.New().String(),
 		"iat":         now.Unix(),
 		"client_id":   MISAdminClientID,

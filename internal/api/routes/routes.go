@@ -7,11 +7,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"smtp-service/internal/api/handlers"
-	"smtp-service/internal/api/middlewares"
-	"smtp-service/internal/config"
-	"smtp-service/internal/services"
-	"smtp-service/pkg/microsoft"
+	"mail-proxy/internal/api/handlers"
+	"mail-proxy/internal/api/middlewares"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/services"
+	"mail-proxy/pkg/microsoft"
 )
 
 // Dependencies 路由依賴
@@ -19,7 +19,6 @@ type Dependencies struct {
 	Config       *config.Config
 	DB           *gorm.DB
 	OAuthService *microsoft.OAuthService
-	SMTPService  *services.SMTPService
 	QueueService *services.QueueService
 	KeyDBService *services.KeyDBService
 }

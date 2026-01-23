@@ -11,8 +11,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"smtp-service/internal/config"
-	"smtp-service/internal/models"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/models"
 )
 
 // KeyDBService KeyDB 服務

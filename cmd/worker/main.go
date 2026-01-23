@@ -14,14 +14,14 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"smtp-service/internal/config"
-	"smtp-service/internal/services"
-	"smtp-service/internal/worker"
-	"smtp-service/pkg/microsoft"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/services"
+	"mail-proxy/internal/worker"
+	"mail-proxy/pkg/microsoft"
 )
 
 func main() {
-	log.Println("Starting SMTP Worker...")
+	log.Println("Starting Mail Proxy Worker...")
 
 	// 載入設定
 	cfg := config.Load()
@@ -47,14 +47,26 @@ func main() {
 	)
 
 	if !oauthService.IsConfigured() {
-		log.Println("WARNING: Microsoft OAuth not configured, mail sending will fail")
+		log.Println("WARNING: Microsoft OAuth not configured, Graph API mail sending will fail")
 	}
 
-	// 初始化 SMTP 服務
-	smtpService := services.NewSMTPService(cfg, oauthService)
+	// 初始化 Graph API 郵件服務
+	graphMailService := services.NewGraphMailService(cfg, oauthService)
+
+	// 初始化 SendGrid 郵件服務
+	sendgridService := services.NewSendGridService(cfg)
+	if !sendgridService.IsConfigured() {
+		log.Println("WARNING: SendGrid API Key not configured, SendGrid mail sending will fail")
+	}
+
+	// 初始化郵件路由服務
+	mailRouter := services.NewMailRouter(cfg, graphMailService, sendgridService)
+	if err := mailRouter.ValidateConfiguration(); err != nil {
+		log.Printf("WARNING: Mail router configuration issue: %v", err)
+	}
 
 	// 初始化 Consumer
-	consumer := worker.NewConsumer(cfg, db, oauthService, smtpService, keydbService)
+	consumer := worker.NewConsumer(cfg, db, oauthService, mailRouter, keydbService)
 
 	// 啟動 Consumer
 	go func() {

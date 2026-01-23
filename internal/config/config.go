@@ -37,6 +37,10 @@ type Config struct {
 	MicrosoftClientID     string
 	MicrosoftClientSecret string
 
+	// SendGrid
+	SendGridAPIKey string
+	OrgEmailDomain string
+
 	// 附件
 	AttachmentPath      string
 	MaxAttachmentSizeMB int
@@ -82,6 +86,10 @@ func Load() *Config {
 		MicrosoftTenantID:     getEnv("MICROSOFT_TENANT_ID", ""),
 		MicrosoftClientID:     getEnv("MICROSOFT_CLIENT_ID", ""),
 		MicrosoftClientSecret: getEnv("MICROSOFT_CLIENT_SECRET", ""),
+
+		// SendGrid
+		SendGridAPIKey: getEnv("SENDGRID_API_KEY", ""),
+		OrgEmailDomain: getEnv("ORG_EMAIL_DOMAIN", "@ptc-nec.com.tw"),
 
 		// 附件
 		AttachmentPath:      getEnv("ATTACHMENT_PATH", "/app/attachments"),

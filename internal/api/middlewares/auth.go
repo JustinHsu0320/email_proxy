@@ -11,8 +11,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/gorm"
 
-	"smtp-service/internal/config"
-	"smtp-service/internal/models"
+	"mail-proxy/internal/config"
+	"mail-proxy/internal/models"
 )
 
 // JWTAuth JWT 認證中介軟體

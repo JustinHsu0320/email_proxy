@@ -31,11 +31,13 @@ graph TB
         W1[Worker Pool 1<br/>Golang RabbitMQ Consumer]
         W2[Worker Pool 2<br/>Golang RabbitMQ Consumer]
         W3[Worker Pool N<br/>Golang RabbitMQ Consumer]
+        ROUTER[MailRouter<br/>寄件者網域路由]
     end
 
-    subgraph "Microsoft SMTP Layer"
+    subgraph "Mail Sending Layer"
         OAUTH[Microsoft OAuth 2.0<br/>Authentication]
         MSMTP[Microsoft Graph API<br/>graph.microsoft.com]
+        SG[SendGrid API<br/>api.sendgrid.com]
     end
 
     subgraph "Storage Layer<br/>(Docker Containers)"
@@ -52,9 +54,11 @@ graph TB
     MS1 & MS2 & MS3 --> KEYDB
     
     MQ --> W1 & W2 & W3
+    W1 & W2 & W3 --> ROUTER
     
-    W1 & W2 & W3 --> OAUTH
+    ROUTER -->|ptc-nec.com.tw| OAUTH
     OAUTH --> MSMTP
+    ROUTER -->|其他網域| SG
     W1 & W2 & W3 --> DB
     W1 & W2 & W3 --> KEYDB
     W1 & W2 & W3 --> ATTACH
@@ -64,6 +68,8 @@ graph TB
     style DB fill:#e8f5e9
     style KEYDB fill:#fce4ec
     style ATTACH fill:#e3f2fd
+    style ROUTER fill:#fff9c4
+    style SG fill:#e8f5e9
 ```
 
 ---
@@ -474,7 +480,9 @@ sequenceDiagram
     participant KeyDB as KeyDB & PostgreSQL
     participant RMQ as RabbitMQ
     participant Worker as Queue Worker
-    participant MS as Microsoft OAuth2.0 / Graph API
+    participant Router as MailRouter
+    participant MS as Microsoft Graph API
+    participant SG as SendGrid API
 
     Client->>API: POST /api/v1/mail/send (with JWT)
     API->>API: Validate JWT & Permissions
@@ -485,13 +493,28 @@ sequenceDiagram
 
     RMQ->>Worker: Consume Mail Job
     Worker->>KeyDB: Update Status: "processing"
-    Worker->>MS: Send Email via OAuth2
+    Worker->>Router: Route by from_address domain
+    
+    alt from_address is @ptc-nec.com.tw
+        Router->>MS: Send via Graph API (OAuth2)
+        alt Success
+            MS-->>Worker: 202 Accepted
+        else Failure
+            MS-->>Worker: Error Response
+        end
+    else Other domain
+        Router->>SG: Send via SendGrid API
+        alt Success
+            SG-->>Worker: 202 Accepted
+        else Failure
+            SG-->>Worker: Error Response
+        end
+    end
+    
     alt Success
-        MS-->>Worker: 250 OK
         Worker->>KeyDB: Update Status: "sent"
         Worker->>API: Update DB Status (Async)
     else Failure
-        MS-->>Worker: Error Response
         Worker->>Worker: Retry Policy (Exponential Backoff)
         Worker->>KeyDB: Update Retry Count & Error
     end
