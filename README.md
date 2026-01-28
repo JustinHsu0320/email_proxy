@@ -18,8 +18,8 @@
 graph TB
     subgraph "Client Layer"
         A1[Department A API Client]
-        A2[Project B API Client]
-        A3[... N API Client]
+        A2[Department B API Client]
+        A3[Department N API Client]
     end
 
     subgraph "Load Balancer Layer<br/>(Ubuntu VM)"
@@ -28,27 +28,25 @@ graph TB
 
     subgraph "Application Layer<br/>(Docker Containers)"
         MS1[Mail Service 1<br/>Golang Gin API]
-        MS2[Mail Service 2<br/>Golang Gin API]
-        MS3[Mail Service N<br/>Golang Gin API]
     end
 
     subgraph "Queue Layer<br/>(Docker Container)"
         MQ[(RabbitMQ)]
     end
 
-    subgraph "Worker Layer<br/>(Docker Containers)"
-        W1[Worker Pool 1<br/>Golang RabbitMQ Consumer]
-        W2[Worker Pool 2<br/>Golang RabbitMQ Consumer]
-        W3[Worker Pool N<br/>Golang RabbitMQ Consumer]
-    end
-
-    subgraph "Microsoft Graph API"
-        OAUTH[Microsoft OAuth 2.0<br/>Authentication]
-        GRAPH[Microsoft Graph API<br/>graph.microsoft.com]
-    end
-
     subgraph "SMTP Inbound Layer<br/>(Docker Container)"
         SMTP[SMTP Receiver<br/>Port 2525/1587]
+    end
+
+    subgraph "Worker Layer<br/>(Docker Containers)"
+        W1[Worker Pool<br/>Golang RabbitMQ Consumer]
+        ROUTER[MailRouter<br/>網域路由]
+    end
+
+    subgraph "Mail Sending Layer"
+        OAUTH[Microsoft OAuth 2.0<br/>Authentication]
+        MSMTP[Microsoft Graph API<br/>graph.microsoft.com]
+        SG[SendGrid API<br/>api.sendgrid.com]
     end
 
     subgraph "Storage Layer<br/>(Docker Containers)"
@@ -58,27 +56,34 @@ graph TB
     end
 
     A1 & A2 & A3 --> LB
-    LB --> MS1 & MS2 & MS3
-    MS1 & MS2 & MS3 --> MQ
-    MS1 & MS2 & MS3 --> DB
-    MS1 & MS2 & MS3 --> ATTACH
-    MS1 & MS2 & MS3 --> KEYDB
+    LB --> MS1
+    MS1 --> MQ
+    MS1 --> DB
+    MS1 --> ATTACH
+    MS1 --> KEYDB
     
     SMTP -->|解析 MIME| MQ
-
-    MQ --> W1 & W2 & W3
-
-    W1 & W2 & W3 --> OAUTH
-    OAUTH --> GRAPH
-    W1 & W2 & W3 --> DB
-    W1 & W2 & W3 --> KEYDB
-    W1 & W2 & W3 --> ATTACH
+    SMTP --> DB
+    SMTP --> KEYDB
+    SMTP --> ATTACH
+    
+    MQ --> W1
+    W1 --> ROUTER
+    
+    ROUTER -->|組織網域| OAUTH
+    OAUTH --> MSMTP
+    ROUTER -->|非組織網域| SG
+    W1 --> DB
+    W1 --> KEYDB
+    W1 --> ATTACH
     
     style LB fill:#e1f5ff
     style MQ fill:#fff4e1
     style DB fill:#e8f5e9
     style KEYDB fill:#fce4ec
     style ATTACH fill:#e3f2fd
+    style ROUTER fill:#fff9c4
+    style SG fill:#e8f5e9
     style SMTP fill:#e8f5e9
 ```
 

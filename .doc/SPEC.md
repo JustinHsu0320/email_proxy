@@ -20,8 +20,6 @@ graph TB
 
     subgraph "Application Layer<br/>(Docker Containers)"
         MS1[Mail Service 1<br/>Golang Gin API]
-        MS2[Mail Service 2<br/>Golang Gin API]
-        MS3[Mail Service N<br/>Golang Gin API]
     end
 
     subgraph "Queue Layer<br/>(Docker Container)"
@@ -33,9 +31,7 @@ graph TB
     end
 
     subgraph "Worker Layer<br/>(Docker Containers)"
-        W1[Worker Pool 1<br/>Golang RabbitMQ Consumer]
-        W2[Worker Pool 2<br/>Golang RabbitMQ Consumer]
-        W3[Worker Pool N<br/>Golang RabbitMQ Consumer]
+        W1[Worker Pool<br/>Golang RabbitMQ Consumer]
         ROUTER[MailRouter<br/>網域路由]
     end
 
@@ -52,23 +48,26 @@ graph TB
     end
 
     A1 & A2 & A3 --> LB
-    LB --> MS1 & MS2 & MS3
-    MS1 & MS2 & MS3 --> MQ
-    MS1 & MS2 & MS3 --> DB
-    MS1 & MS2 & MS3 --> ATTACH
-    MS1 & MS2 & MS3 --> KEYDB
+    LB --> MS1
+    MS1 --> MQ
+    MS1 --> DB
+    MS1 --> ATTACH
+    MS1 --> KEYDB
     
     SMTP -->|解析 MIME| MQ
+    SMTP --> DB
+    SMTP --> KEYDB
+    SMTP --> ATTACH
     
-    MQ --> W1 & W2 & W3
-    W1 & W2 & W3 --> ROUTER
+    MQ --> W1
+    W1 --> ROUTER
     
     ROUTER -->|組織網域| OAUTH
     OAUTH --> MSMTP
     ROUTER -->|非組織網域| SG
-    W1 & W2 & W3 --> DB
-    W1 & W2 & W3 --> KEYDB
-    W1 & W2 & W3 --> ATTACH
+    W1 --> DB
+    W1 --> KEYDB
+    W1 --> ATTACH
     
     style LB fill:#e1f5ff
     style MQ fill:#fff4e1
