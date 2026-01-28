@@ -1,5 +1,5 @@
-# .docker/api/Dockerfile
-# API 服務多階段建構
+# .docker/smtp-receiver/Dockerfile
+# SMTP Inbound Server 多階段建構
 
 FROM golang:1.23-alpine AS builder
 
@@ -15,8 +15,8 @@ RUN go mod download
 # 複製原始碼
 COPY . .
 
-# 編譯 API
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /api ./cmd/api
+# 編譯 SMTP Receiver
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /smtp-receiver ./cmd/smtp-receiver
 
 # ============================================
 # 最終映像
@@ -27,11 +27,10 @@ RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
 
-COPY --from=builder /api .
+COPY --from=builder /smtp-receiver .
 
-# 健康檢查用
-RUN apk --no-cache add wget
+# SMTP 服務埠號
+EXPOSE 2525
+EXPOSE 1587
 
-EXPOSE 8080
-
-CMD ["./api"]
+CMD ["./smtp-receiver"]

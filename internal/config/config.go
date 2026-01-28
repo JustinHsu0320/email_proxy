@@ -6,6 +6,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -55,6 +56,14 @@ type Config struct {
 	// Admin Token 初始化
 	InitAdminToken bool
 	AdminTokenName string
+
+	// SMTP Inbound Server 設定
+	SMTPInboundPort    string   // SMTP 監聽埠號 (預設: 2525)
+	SMTPInboundTLSPort string   // SMTP TLS 監聽埠號 (預設: 1587)
+	SMTPTLSEnabled     bool     // 是否啟用 TLS
+	SMTPAuthRequired   bool     // 是否需要認證
+	SMTPAllowedDomains []string // 允許的寄件網域 (空白表示允許全部)
+	SMTPMaxMessageSize int      // 最大訊息大小 (MB)
 }
 
 // Load 載入設定
@@ -92,7 +101,7 @@ func Load() *Config {
 		OrgEmailDomain: getEnv("ORG_EMAIL_DOMAIN", "@ptc-nec.com.tw"),
 
 		// 附件
-		AttachmentPath:      getEnv("ATTACHMENT_PATH", "/app/attachments"),
+		AttachmentPath:      getEnv("ATTACHMENT_VOLUME_PATH", "/app/attachments"),
 		MaxAttachmentSizeMB: getEnvAsInt("MAX_ATTACHMENT_SIZE_MB", 25),
 
 		// Worker
@@ -105,6 +114,14 @@ func Load() *Config {
 		// Admin Token 初始化
 		InitAdminToken: getEnvAsBool("INIT_ADMIN_TOKEN", true),
 		AdminTokenName: getEnv("ADMIN_TOKEN_NAME", "MIS Admin"),
+
+		// SMTP Inbound Server
+		SMTPInboundPort:    getEnv("SMTP_INBOUND_PORT", "2525"),
+		SMTPInboundTLSPort: getEnv("SMTP_INBOUND_TLS_PORT", "1587"),
+		SMTPTLSEnabled:     getEnvAsBool("SMTP_TLS_ENABLED", false),
+		SMTPAuthRequired:   getEnvAsBool("SMTP_AUTH_REQUIRED", false),
+		SMTPAllowedDomains: getEnvAsSlice("SMTP_ALLOWED_DOMAINS", []string{}),
+		SMTPMaxMessageSize: getEnvAsInt("SMTP_MAX_MESSAGE_SIZE_MB", 25),
 	}
 }
 
@@ -130,6 +147,22 @@ func getEnvAsInt(key string, defaultValue int) int {
 func getEnvAsBool(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
 		return value == "true" || value == "1" || value == "yes"
+	}
+	return defaultValue
+}
+
+// getEnvAsSlice 取得環境變數並轉換為字串切片（以逗號分隔）
+func getEnvAsSlice(key string, defaultValue []string) []string {
+	if value := os.Getenv(key); value != "" {
+		parts := strings.Split(value, ",")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			trimmed := strings.TrimSpace(p)
+			if trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		return result
 	}
 	return defaultValue
 }

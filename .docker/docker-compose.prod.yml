@@ -105,6 +105,42 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ============================================
+  # SMTP Inbound Server 服務
+  # 接收外部 SMTP 郵件並轉發到 RabbitMQ
+  # ============================================
+  smtp-receiver:
+    build:
+      context: ..
+      dockerfile: .docker/smtp-receiver/Dockerfile
+    container_name: mail-proxy-smtp-receiver
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV}
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - MAIL_QUEUE_NAME=${MAIL_QUEUE_NAME:-mail-queue}
+      - SMTP_INBOUND_PORT=${SMTP_INBOUND_PORT:-2525}
+      - SMTP_INBOUND_TLS_PORT=${SMTP_INBOUND_TLS_PORT:-1587}
+      - SMTP_TLS_ENABLED=${SMTP_TLS_ENABLED:-false}
+      - SMTP_AUTH_REQUIRED=${SMTP_AUTH_REQUIRED:-false}
+      - SMTP_ALLOWED_DOMAINS=${SMTP_ALLOWED_DOMAINS:-}
+      - SMTP_MAX_MESSAGE_SIZE_MB=${SMTP_MAX_MESSAGE_SIZE_MB:-25}
+      - JWT_SECRET=${JWT_SECRET}
+    ports:
+      - "${SMTP_INBOUND_PORT:-2525}:2525"
+      - "${SMTP_INBOUND_TLS_PORT:-1587}:1587"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
 networks:
   # 內部網路 (API 與 Worker 通訊用)
   mail-proxy-internal:

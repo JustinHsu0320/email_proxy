@@ -1,7 +1,7 @@
 # .docker/worker/Dockerfile
 # Worker 服務多階段建構
 
-FROM golang:1.25-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 

@@ -28,6 +28,10 @@ graph TB
         MQ[(RabbitMQ)]
     end
 
+    subgraph "SMTP Inbound Layer<br/>(Docker Container)"
+        SMTP[SMTP Receiver<br/>Port 2525/1587]
+    end
+
     subgraph "Worker Layer<br/>(Docker Containers)"
         W1[Worker Pool 1<br/>Golang RabbitMQ Consumer]
         W2[Worker Pool 2<br/>Golang RabbitMQ Consumer]
@@ -54,6 +58,8 @@ graph TB
     MS1 & MS2 & MS3 --> ATTACH
     MS1 & MS2 & MS3 --> KEYDB
     
+    SMTP -->|解析 MIME| MQ
+    
     MQ --> W1 & W2 & W3
     W1 & W2 & W3 --> ROUTER
     
@@ -71,6 +77,7 @@ graph TB
     style ATTACH fill:#e3f2fd
     style ROUTER fill:#fff9c4
     style SG fill:#e8f5e9
+    style SMTP fill:#e8f5e9
 ```
 
 ---
@@ -124,27 +131,34 @@ graph TB
 - 提供 RESTful API 簡化整合流程
 - **JWT Token 永久有效，記錄來源 Client 識別資訊**
 
-#### 2.1.2 負載均衡層 (Load Balancer)
+#### 2.1.2 SMTP Inbound 層 (SMTP Inbound Layer)
+- **Golang + go-smtp** 實作 SMTP 伺服器
+- 監聽 Port 2525 (SMTP) 和 1587 (TLS)
+- 接收外部 SMTP 郵件並解析 MIME 格式
+- 轉發至 RabbitMQ 佇列
+- 支援可選認證與寄件網域白名單
+
+#### 2.1.3 負載均衡層 (Load Balancer)
 - **自建 Ubuntu VM**: HAProxy 或 Nginx
 - 支援健康檢查 (Health Check)
 - SSL/TLS 終止 (Let's Encrypt 或自簽憑證)
 - 連接數限制
 - 配置範例路徑: `/etc/haproxy/` 或 `/etc/nginx/`
 
-#### 2.1.3 應用服務層 (Application Layer)
+#### 2.1.4 應用服務層 (Application Layer)
 - **Golang + Gin 開發的微服務**
 - **Docker 容器化部署**
 - 無狀態設計，支援水平擴展
 - 郵件請求驗證與預處理
 - 附件處理與儲存 (Volume Mount)
 
-#### 2.1.4 消息隊列層 (Queue Layer)
+#### 2.1.5 消息隊列層 (Queue Layer)
 - **Docker Container**: RabbitMQ
 - 單一隊列 (不分優先級)
 - 持久化保證 (Durable Queues)
 - 死信隊列 (DLX) 處理失敗訊息
 
-#### 2.1.5 工作處理層 (Worker Layer)
+#### 2.1.6 工作處理層 (Worker Layer)
 - **Golang** 開發
 - **Docker 容器化部署**
 - 使用 Goroutine 實現並發
@@ -153,13 +167,13 @@ graph TB
 - 優雅關機支援 (Graceful Shutdown)
 - **透過 Microsoft OAuth 2.0 認證後發送郵件**
 
-#### 2.1.6 Microsoft SMTP 發送層 (SMTP Layer)
+#### 2.1.7 Microsoft SMTP 發送層 (SMTP Layer)
 - **Microsoft Graph API / SMTP OAuth 2.0**
 - 使用 `graph.microsoft.com` 發送郵件
 - Application Permission (Client Credentials Flow)
 - 發送狀態追蹤
 
-#### 2.1.7 儲存層 (Storage Layer)
+#### 2.1.8 儲存層 (Storage Layer)
 - **Docker Container**: PostgreSQL
   - 郵件元數據、發送記錄、JWT Client 記錄
 - **Docker Container**: KeyDB
@@ -362,13 +376,17 @@ mail-proxy/
 │   │   └── Dockerfile
 │   ├── worker/
 │   │   └── Dockerfile
+│   ├── smtp-receiver/
+│   │   └── Dockerfile          # SMTP Inbound Server
 │   ├── docker-compose.yml
 │   └── .env.example
 ├── cmd/
 │   ├── api/
 │   │   └── main.go          # Gin RESTful API 入口
-│   └── worker/
-│       └── main.go          # RabbitMQ Worker 入口
+│   ├── worker/
+│   │   └── main.go          # RabbitMQ Worker 入口
+│   └── smtp-receiver/
+│       └── main.go          # SMTP Inbound Server 入口
 ├── internal/
 │   ├── api/
 │   │   ├── handlers/
@@ -383,6 +401,10 @@ mail-proxy/
 │   │   │   └── routes.go
 │   │   └── validators/
 │   │       └── mail_validator.go
+│   ├── smtp/                   # SMTP Inbound Server
+│   │   ├── server.go           # SMTP 伺服器核心
+│   │   ├── session.go          # Session 處理與 MIME 解析
+│   │   └── backend.go          # Backend 介面實作
 │   ├── worker/
 │   │   ├── consumer.go
 │   │   ├── processor.go
@@ -450,6 +472,14 @@ MAX_ATTACHMENT_SIZE_MB=25
 
 # JWT
 JWT_SECRET=your-jwt-secret-key
+
+# SMTP Inbound Server
+SMTP_INBOUND_PORT=2525
+SMTP_INBOUND_TLS_PORT=1587
+SMTP_TLS_ENABLED=false
+SMTP_AUTH_REQUIRED=false
+SMTP_ALLOWED_DOMAINS=
+SMTP_MAX_MESSAGE_SIZE_MB=25
 ```
 
 ---
@@ -1400,57 +1430,9 @@ docker-compose down
 
 ---
 
-## 12. 開發時程規劃
+## 12. 附錄
 
-> **專案期間**: 2026/01/19 (週一) ~ 2026/02/14 (週六，農曆除夕 2/16 前完成)
-> **總計**: 4 週
-
-### 第一週 (01/19 - 01/23): 基礎建設
-
-| 日期 | 任務 | 產出 |
-|------|------|------|
-| 01/19 (一) | 架構設計確認、VM 規格確認 | 架構確認文件 |
-| 01/20 (二) | Docker 環境建置、docker-compose 配置 | 開發環境就緒 |
-| 01/21 (三) | PostgreSQL + KeyDB 容器配置 | 資料庫就緒 |
-| 01/22 (四) | RabbitMQ 容器配置 | 消息隊列就緒 |
-| 01/23 (五) | 外接硬碟 Volume 掛載、Load Balancer 設定 | 儲存/負載均衡就緒 |
-
-### 第二週 (01/26 - 01/30): 核心開發 (一)
-
-| 日期 | 任務 | 產出 |
-|------|------|------|
-| 01/26 (一) | Microsoft OAuth 2.0 整合 | OAuth 模組 |
-| 01/27 (二) | Golang 專案初始化、專案結構 | 專案骨架 |
-| 01/28 (三) | JWT 認證模組、Client 管理 API | Token 系統 |
-| 01/29 (四) | 郵件發送 API 開發 | 核心 API |
-| 01/30 (五) | 附件上傳/處理、Volume 整合 | 附件功能 |
-
-### 第三週 (02/02 - 02/06): 核心開發 (二)
-
-| 日期 | 任務 | 產出 |
-|------|------|------|
-| 02/02 (一) | RabbitMQ Worker 開發 | 訊息處理 |
-| 02/03 (二) | Microsoft SMTP 發送整合 | 發送功能 |
-| 02/04 (三) | 重試機制 (5次)、失敗處理 | 重試機制 |
-| 02/05 (四) | KeyDB 狀態管理、TTL 設定 | 狀態查詢 |
-| 02/06 (五) | API 完善、錯誤處理 | API 完成 |
-
-### 第四週 (02/09 - 02/14): 測試與上線
-
-| 日期 | 任務 | 產出 |
-|------|------|------|
-| 02/09 (一) | 單元測試、整合測試 | 測試報告 |
-| 02/10 (二) | 壓力測試 (1000封/分鐘驗證) | 效能報告 |
-| 02/11 (三) | 安全測試、Bug 修復 | 安全報告 |
-| 02/12 (四) | 文件撰寫、部署 SOP | 維運文件 |
-| 02/13 (五) | 預發布環境驗證 | UAT 通過 |
-| 02/14 (六) | 正式上線、監控確認 | **系統上線** |
-
----
-
-## 13. 附錄
-
-### 13.1 軟體版本建議
+### 12.1 軟體版本建議
 | 軟體 | 版本 | 說明 |
 |------|------|------|
 | Ubuntu | 22.04 LTS | 長期支援版本 |

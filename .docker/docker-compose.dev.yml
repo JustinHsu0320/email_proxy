@@ -180,6 +180,53 @@ services:
           cpus: '0.25'
           memory: 128M
 
+  # ============================================
+  # SMTP Inbound Server 服務
+  # 接收外部 SMTP 郵件並轉發到 RabbitMQ
+  # ============================================
+  smtp-receiver:
+    build:
+      context: ..
+      dockerfile: .docker/smtp-receiver/Dockerfile
+    container_name: mail-proxy-smtp-receiver
+    restart: unless-stopped
+    environment:
+      - APP_ENV=${APP_ENV}
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}?sslmode=disable
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - KEYDB_URL=keydb:6379
+      - KEYDB_STATUS_TTL_DAYS=${KEYDB_STATUS_TTL_DAYS}
+      - MAIL_QUEUE_NAME=${MAIL_QUEUE_NAME:-mail-queue}
+      - ATTACHMENT_VOLUME_PATH=/app/attachments
+      - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB}
+      - SMTP_INBOUND_PORT=${SMTP_INBOUND_PORT:-2525}
+      - SMTP_INBOUND_TLS_PORT=${SMTP_INBOUND_TLS_PORT:-1587}
+      - SMTP_TLS_ENABLED=${SMTP_TLS_ENABLED:-false}
+      - SMTP_AUTH_REQUIRED=${SMTP_AUTH_REQUIRED:-false}
+      - SMTP_ALLOWED_DOMAINS=${SMTP_ALLOWED_DOMAINS:-}
+      - SMTP_MAX_MESSAGE_SIZE_MB=${SMTP_MAX_MESSAGE_SIZE_MB:-25}
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
+    ports:
+      - "${SMTP_INBOUND_PORT:-2525}:2525"
+      - "${SMTP_INBOUND_TLS_PORT:-1587}:1587"
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      keydb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
 volumes:
   postgresql_data:
   keydb_data:

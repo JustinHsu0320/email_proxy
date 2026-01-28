@@ -10,6 +10,7 @@
 - 🔄 **自動重試**: 指數退避演算法，寄信失敗最多 5 次重試
 - 📊 **狀態追蹤**: KeyDB 快取郵件狀態，14 天 TTL
 - 🐳 **容器化部署**: Docker Compose 一鍵啟動
+- 📥 **SMTP Inbound**: 支援 SMTP 協定接收郵件並轉發 (Port 2525/1587)
 
 ## 系統架構
 
@@ -46,6 +47,10 @@ graph TB
         GRAPH[Microsoft Graph API<br/>graph.microsoft.com]
     end
 
+    subgraph "SMTP Inbound Layer<br/>(Docker Container)"
+        SMTP[SMTP Receiver<br/>Port 2525/1587]
+    end
+
     subgraph "Storage Layer<br/>(Docker Containers)"
         DB[(PostgreSQL<br/>Mail Records)]
         KEYDB[(KeyDB<br/>Status Cache)]
@@ -59,8 +64,10 @@ graph TB
     MS1 & MS2 & MS3 --> ATTACH
     MS1 & MS2 & MS3 --> KEYDB
     
+    SMTP -->|解析 MIME| MQ
+
     MQ --> W1 & W2 & W3
-    
+
     W1 & W2 & W3 --> OAUTH
     OAUTH --> GRAPH
     W1 & W2 & W3 --> DB
@@ -72,6 +79,7 @@ graph TB
     style DB fill:#e8f5e9
     style KEYDB fill:#fce4ec
     style ATTACH fill:#e3f2fd
+    style SMTP fill:#e8f5e9
 ```
 
 > 📖 詳細規格請參考 [SPEC.md](.doc/SPEC.md)
@@ -158,7 +166,130 @@ curl http://localhost:8080/health
 # 查看日誌
 docker logs -f mail-proxy-api
 docker logs -f mail-proxy-worker
+docker logs -f mail-proxy-smtp-receiver
 ```
+
+---
+
+### SMTP Inbound Server
+
+SMTP Inbound Server 允許舊系統或其他應用程式透過標準 SMTP 協定發送郵件：
+
+```bash
+# 使用 telnet 測試
+telnet localhost 2525
+
+# 簡易使用 swaks 測試 (Linux/macOS)
+swaks --to recipient@example.com \
+      --from sender@ptc-nec.com.tw \
+      --server localhost:2525 \
+      --body "這是測試郵件內容" \
+      --header "Subject: SMTP 測試郵件"
+      
+# 完整使用 swaks 測試
+# swaks 完整參數範例
+swaks \
+  # === 基本連接設定 ===
+  --server localhost:2525 \
+  --protocol SMTP \
+  --timeout 60 \
+  
+  # === 郵件地址 ===
+  --from "sender@ptc-nec.com.tw" \
+  --to "recipient1@example.com,recipient2@example.com" \
+  --cc "cc@example.com" \
+  --bcc "bcc@example.com" \
+  
+  # === 信封地址 (可與郵件地址不同) ===
+  --mail-from "envelope-sender@ptc-nec.com.tw" \
+  --rcpt-to "envelope-recipient@example.com" \
+  
+  # === 郵件標頭 ===
+  --header "Subject: SMTP 完整功能測試郵件" \
+  --header "X-Custom-Header: TestValue123" \
+  --header "X-Priority: 1" \
+  --header "X-Mailer: swaks-testing" \
+  --add-header "Reply-To: noreply@ptc-nec.com.tw" \
+  
+  # === 郵件內容 ===
+  --body "這是測試郵件的純文字內容。\n\n包含多行文字。" \
+  --data "custom_message.eml" \  # 或使用外部檔案
+  
+  # === 附件 ===
+  --attach /path/to/attachment1.pdf \
+  --attach-type "application/pdf" \
+  --attach-name "測試文件.pdf" \
+  
+  # === 認證設定 ===
+  --auth PLAIN \
+  --auth-user "smtp_username" \
+  --auth-password "smtp_password" \
+  # --auth LOGIN \  # 其他認證方式
+  # --auth CRAM-MD5 \
+  # --auth DIGEST-MD5 \
+  
+  # === TLS/SSL 設定 ===
+  --tls \
+  --tls-on-connect \  # 使用 SMTPS (465)
+  # --tls-cert /path/to/client-cert.pem \
+  # --tls-key /path/to/client-key.pem \
+  # --tls-ca /path/to/ca-cert.pem \
+  --tls-verify \  # 驗證伺服器憑證
+  
+  # === SMTP 對話控制 ===
+  --helo "mail.ptc-nec.com.tw" \
+  --ehlo "mail.ptc-nec.com.tw" \
+  --quit-after RCPT \  # 在 RCPT 命令後退出 (測試階段)
+  # --quit-after AUTH \
+  # --quit-after DATA \
+  
+  # === 輸出與除錯 ===
+  --show-body \
+  --show-headers \
+  --show-raw-text \
+  --hide-all \  # 隱藏所有輸出 (與其他 show 互斥)
+  --silent 2 \  # 靜默等級 (0-3)
+  --support \  # 顯示伺服器支援的功能
+  
+  # === 傳輸選項 ===
+  --pipeline \  # 使用 SMTP pipelining
+  --force-getpwuid \
+  --local-interface 192.168.1.100 \  # 指定本地介面
+  --local-port 0 \  # 指定本地端口 (0=隨機)
+  
+  # === 測試與除錯 ===
+  --dump \  # 轉儲郵件內容
+  --dump-mail \  # 只轉儲郵件部分
+  --dry-run \  # 不實際發送
+  --test-email \  # 使用測試郵件地址
+  --suppress-data \  # 不發送 DATA 命令
+  
+  # === 特殊功能 ===
+  --header-X-Mailer "Custom Mailer v1.0" \
+  --h-From "Display Name <sender@ptc-nec.com.tw>" \
+  --h-To "Recipient Name <recipient@example.com>" \
+  --h-Subject "郵件主題" \
+  --data-on-stdin \  # 從 stdin 讀取郵件內容
+  
+  # === 效能測試 ===
+  --n-times 5 \  # 發送次數
+  --interval 2 \  # 每次發送間隔 (秒)
+  
+  # === 其他 ===
+  --socket-timeout 60 \
+  --copy-routing "admin@ptc-nec.com.tw" \  # 複製所有郵件到此地址
+  --server-port 2525
+```
+
+**SMTP Inbound 環境變數**：
+
+| 變數 | 說明 | 預設值 |
+|:-----|:-----|:-------|
+| `SMTP_INBOUND_PORT` | SMTP 監聽埠號 | `2525` |
+| `SMTP_INBOUND_TLS_PORT` | TLS 監聽埠號 | `1587` |
+| `SMTP_AUTH_REQUIRED` | 是否需要認證 | `false` |
+| `SMTP_ALLOWED_DOMAINS` | 允許的寄件網域 | 空白 |
+| `SMTP_MAX_MESSAGE_SIZE_MB` | 最大郵件大小 | `25` MB |
 
 ---
 
@@ -217,6 +348,7 @@ mail-proxy/
 ├── .docker/                                # Docker 配置
 │   ├── api/                                # API Dockerfile
 │   ├── worker/                             # Worker Dockerfile
+│   ├── smtp-receiver/                      # SMTP Receiver Dockerfile
 │   ├── .env.prod.example                   # 生產環境環境變數範本
 │   ├── .env.dev.example                    # 開發環境環境變數範本
 │   ├── docker-compose.prod.yml             # 生產環境 (連接外部基礎設施)
@@ -227,12 +359,14 @@ mail-proxy/
 │   └── SPEC.md                             # 系統規格書
 ├── cmd/
 │   ├── api/main.go                         # API 入口
-│   └── worker/main.go                      # Worker 入口
+│   ├── worker/main.go                      # Worker 入口
+│   └── smtp-receiver/main.go               # SMTP Receiver 入口
 ├── internal/
 │   ├── api/                                # API 層 (routes, handlers, middlewares)
 │   ├── config/                             # 設定管理
 │   ├── models/                             # 資料模型
 │   ├── services/                           # 服務層
+│   ├── smtp/                               # SMTP Inbound Server
 │   └── worker/                             # Worker 消費者
 ├── pkg/microsoft/                          # Microsoft OAuth & Graph API
 ├── migrations/                             # 資料庫遷移腳本
@@ -252,6 +386,9 @@ go run cmd/api/main.go
 
 # 啟動 Worker
 go run cmd/worker/main.go
+
+# 啟動 SMTP Receiver
+go run cmd/smtp-receiver/main.go
 ```
 
 ---
