@@ -17,13 +17,13 @@
 ```mermaid
 graph TB
     subgraph "Client Layer"
-        A1[Department A API Client]
-        A2[Department B API Client]
-        A3[Department N API Client]
+        A1[API Client - Department]
+        A2[API Client - Project]
+        A3[SMTP Client - SQL Server]
     end
 
     subgraph "Load Balancer Layer<br/>(Ubuntu VM)"
-        LB[HAProxy/Nginx]
+        LB[HAProxy]
     end
 
     subgraph "Application Layer<br/>(Docker Containers)"
@@ -55,13 +55,14 @@ graph TB
         ATTACH[/Volume Mount<br/>Attachments/]
     end
 
-    A1 & A2 & A3 --> LB
+    A1 & A2 --> LB
     LB --> MS1
     MS1 --> MQ
     MS1 --> DB
     MS1 --> ATTACH
     MS1 --> KEYDB
     
+    A3 --> SMTP
     SMTP -->|解析 MIME| MQ
     SMTP --> DB
     SMTP --> KEYDB
