@@ -3,6 +3,9 @@
 
 FROM golang:1.23-alpine AS builder
 
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
 WORKDIR /app
 
 # 安裝必要工具
