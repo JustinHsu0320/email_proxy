@@ -1,10 +1,95 @@
 # .docker/docker-compose.prod.yml
-# Mail Proxy 生產環境配置 (API + Worker)
-# 連接 MIS 自建的 PostgreSQL、KeyDB、RabbitMQ
+# 郵件代理系統生產環境
 
 version: '3.8'
 
 services:
+  # ============================================
+  # PostgreSQL 資料庫
+  # ============================================
+  postgresql:
+    image: postgres:15-alpine
+    container_name: mail-proxy-postgresql
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+      - ../migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # KeyDB (Redis 相容)
+  # ============================================
+  keydb:
+    image: eqalpha/keydb:latest
+    container_name: mail-proxy-keydb
+    restart: unless-stopped
+    command: keydb-server --appendonly yes
+    volumes:
+      - keydb_data:/data
+    ports:
+      - "6379:6379"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: [ "CMD", "keydb-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # RabbitMQ 消息隊列
+  # ============================================
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: mail-proxy-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: [ "CMD", "rabbitmq-diagnostics", "status" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   # ============================================
   # API 服務
   # ============================================
@@ -12,14 +97,18 @@ services:
     build:
       context: ..
       dockerfile: .docker/api/Dockerfile
+      args:
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
     container_name: mail-proxy-api
     restart: unless-stopped
     environment:
       - APP_ENV=${APP_ENV}
-      - API_PORT=${API_PORT}
-      - DATABASE_URL=${DATABASE_URL}
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - KEYDB_URL=${KEYDB_URL}
+      - API_PORT=8080
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}?sslmode=disable
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - KEYDB_URL=keydb:6379
       - KEYDB_STATUS_TTL_DAYS=${KEYDB_STATUS_TTL_DAYS}
       - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID}
       - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}
@@ -27,16 +116,21 @@ services:
       - ATTACHMENT_PATH=/app/attachments
       - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB}
       - JWT_SECRET=${JWT_SECRET}
-      - MAIL_QUEUE_NAME=${MAIL_QUEUE_NAME}
-      - RETRY_QUEUE_NAME=${RETRY_QUEUE_NAME}
-      - FAILED_QUEUE_NAME=${FAILED_QUEUE_NAME}
+      # Proxy 設定（用於外部 API 呼叫）
+      - HTTP_PROXY=${HTTP_PROXY}
+      - HTTPS_PROXY=${HTTPS_PROXY}
+      - NO_PROXY=${NO_PROXY}
     volumes:
       - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
     ports:
-      - "${API_PORT}:${API_PORT}"
-    networks:
-      - mail-proxy-internal
-      - external-infra
+      - "8080:8080"
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      keydb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -46,15 +140,10 @@ services:
           cpus: '0.5'
           memory: 256M
     healthcheck:
-      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:${API_PORT}/health" ]
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:8080/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # ============================================
   # Worker 服務
@@ -63,13 +152,17 @@ services:
     build:
       context: ..
       dockerfile: .docker/worker/Dockerfile
+      args:
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
     container_name: mail-proxy-worker
     restart: unless-stopped
     environment:
       - APP_ENV=${APP_ENV}
-      - DATABASE_URL=${DATABASE_URL}
-      - RABBITMQ_URL=${RABBITMQ_URL}
-      - KEYDB_URL=${KEYDB_URL}
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}?sslmode=disable
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - KEYDB_URL=keydb:6379
       - KEYDB_STATUS_TTL_DAYS=${KEYDB_STATUS_TTL_DAYS}
       - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID}
       - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}
@@ -81,14 +174,19 @@ services:
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY}
       - WORKER_PREFETCH=${WORKER_PREFETCH}
       - MAX_RETRY_COUNT=${MAX_RETRY_COUNT}
-      - MAIL_QUEUE_NAME=${MAIL_QUEUE_NAME}
-      - RETRY_QUEUE_NAME=${RETRY_QUEUE_NAME}
-      - FAILED_QUEUE_NAME=${FAILED_QUEUE_NAME}
+      # Proxy 設定（用於 Microsoft Graph API 和 SendGrid）
+      - HTTP_PROXY=${HTTP_PROXY}
+      - HTTPS_PROXY=${HTTPS_PROXY}
+      - NO_PROXY=${NO_PROXY}
     volumes:
       - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
-    networks:
-      - mail-proxy-internal
-      - external-infra
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      keydb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -97,13 +195,6 @@ services:
         reservations:
           cpus: '0.5'
           memory: 256M
-      # 水平擴展 Worker 實例數量
-      replicas: ${WORKER_REPLICAS:-1}
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # ============================================
   # SMTP Inbound Server 服務
@@ -113,41 +204,54 @@ services:
     build:
       context: ..
       dockerfile: .docker/smtp-receiver/Dockerfile
+      args:
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
     container_name: mail-proxy-smtp-receiver
     restart: unless-stopped
     environment:
       - APP_ENV=${APP_ENV}
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgresql:5432/${POSTGRES_DB}?sslmode=disable
       - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      - KEYDB_URL=keydb:6379
+      - KEYDB_STATUS_TTL_DAYS=${KEYDB_STATUS_TTL_DAYS}
       - MAIL_QUEUE_NAME=${MAIL_QUEUE_NAME:-mail-queue}
+      - ATTACHMENT_VOLUME_PATH=/app/attachments
+      - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB}
       - SMTP_INBOUND_PORT=${SMTP_INBOUND_PORT:-2525}
       - SMTP_INBOUND_TLS_PORT=${SMTP_INBOUND_TLS_PORT:-1587}
-      - SMTP_TLS_ENABLED=${SMTP_TLS_ENABLED:-false}
-      - SMTP_AUTH_REQUIRED=${SMTP_AUTH_REQUIRED:-false}
+      - SMTP_TLS_ENABLED=${SMTP_TLS_ENABLED:-true}
+      - SMTP_AUTH_REQUIRED=${SMTP_AUTH_REQUIRED:-true}
       - SMTP_ALLOWED_DOMAINS=${SMTP_ALLOWED_DOMAINS:-}
       - SMTP_MAX_MESSAGE_SIZE_MB=${SMTP_MAX_MESSAGE_SIZE_MB:-25}
       - JWT_SECRET=${JWT_SECRET}
+      # Proxy 設定
+      - HTTP_PROXY=${HTTP_PROXY}
+      - HTTPS_PROXY=${HTTPS_PROXY}
+      - NO_PROXY=${NO_PROXY}
+    volumes:
+      - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
     ports:
       - "${SMTP_INBOUND_PORT:-2525}:2525"
       - "${SMTP_INBOUND_TLS_PORT:-1587}:1587"
     depends_on:
+      postgresql:
+        condition: service_healthy
+      keydb:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     deploy:
       resources:
         limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
           cpus: '0.25'
           memory: 128M
-        reservations:
-          cpus: '0.1'
-          memory: 64M
 
-networks:
-  # 內部網路 (API 與 Worker 通訊用)
-  mail-proxy-internal:
-    driver: bridge
-
-  # 外部網路 (連接 MIS 基礎設施)
-  # 請確保此網路已由 MIS 建立，或修改為正確的網路名稱
-  external-infra:
-    external: true
-    name: ${EXTERNAL_NETWORK_NAME:-infra-network}
+volumes:
+  postgresql_data:
+  keydb_data:
+  rabbitmq_data:

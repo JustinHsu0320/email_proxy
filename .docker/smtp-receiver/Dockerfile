@@ -7,6 +7,9 @@
 # ============================================
 FROM golang:1.23-bookworm AS builder
 
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
 WORKDIR /app
 
 # 複製 go.mod 和 go.sum
