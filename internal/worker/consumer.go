@@ -7,9 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"gorm.io/gorm"
 
@@ -21,13 +23,15 @@ import (
 
 // Consumer RabbitMQ Consumer
 type Consumer struct {
-	cfg          *config.Config
-	db           *gorm.DB
-	conn         *amqp.Connection
-	channel      *amqp.Channel
-	oauthService *microsoft.OAuthService
-	mailRouter   *services.MailRouter
-	keydbService *services.KeyDBService
+	cfg                 *config.Config
+	db                  *gorm.DB
+	conn                *amqp.Connection
+	channel             *amqp.Channel
+	oauthService        *microsoft.OAuthService
+	mailRouter          *services.MailRouter
+	keydbService        *services.KeyDBService
+	senderConfigService *services.EmailSenderConfigService
+	graphMailService    *services.GraphMailService
 
 	isShutdown bool
 	activeJobs int
@@ -36,13 +40,23 @@ type Consumer struct {
 }
 
 // NewConsumer 建立 Consumer
-func NewConsumer(cfg *config.Config, db *gorm.DB, oauthService *microsoft.OAuthService, mailRouter *services.MailRouter, keydbService *services.KeyDBService) *Consumer {
+func NewConsumer(
+	cfg *config.Config,
+	db *gorm.DB,
+	oauthService *microsoft.OAuthService,
+	mailRouter *services.MailRouter,
+	keydbService *services.KeyDBService,
+	senderConfigService *services.EmailSenderConfigService,
+	graphMailService *services.GraphMailService,
+) *Consumer {
 	return &Consumer{
-		cfg:          cfg,
-		db:           db,
-		oauthService: oauthService,
-		mailRouter:   mailRouter,
-		keydbService: keydbService,
+		cfg:                 cfg,
+		db:                  db,
+		oauthService:        oauthService,
+		mailRouter:          mailRouter,
+		keydbService:        keydbService,
+		senderConfigService: senderConfigService,
+		graphMailService:    graphMailService,
 	}
 }
 
@@ -159,10 +173,37 @@ func (c *Consumer) handleMessage(msg amqp.Delivery) {
 	c.keydbService.SetStatus(ctx, job.MailID, "processing", job.RetryCount, "")
 	c.db.Model(&models.Mail{}).Where("id = ?", job.MailID).Update("status", models.MailStatusProcessing)
 
-	// 發送郵件
-	if err := c.mailRouter.SendMail(&job); err != nil {
-		log.Printf("Failed to send mail %s: %v", job.MailID, err)
-		c.handleRetry(ctx, msg, &job, err)
+	// 檢查是否有 SenderConfigID (來自 API 請求)
+	var sendErr error
+	if job.SenderConfigID != "" && c.senderConfigService != nil {
+		// 使用資料庫配置發送
+		senderConfigUUID, err := uuid.Parse(job.SenderConfigID)
+		if err != nil {
+			log.Printf("Invalid sender config ID for mail %s: %v", job.MailID, err)
+			c.handleRetry(ctx, msg, &job, err)
+			return
+		}
+
+		config, secret, err := c.senderConfigService.GetDecryptedConfig(senderConfigUUID)
+		if err != nil {
+			log.Printf("Failed to get sender config for mail %s: %v", job.MailID, err)
+			c.handleRetry(ctx, msg, &job, err)
+			return
+		}
+
+		log.Printf("Using database OAuth config for sender: %s", job.FromAddress)
+		sendErr = c.graphMailService.SendMailWithConfig(&job, config.MSTenantID, config.MSClientID, secret)
+	} else {
+		// 使用環境變數配置 (組織網域) 或 SendGrid (非組織網域)
+		if strings.HasSuffix(strings.ToLower(job.FromAddress), strings.ToLower(c.cfg.OrgEmailDomain)) {
+			log.Printf("Using environment OAuth config for sender: %s (SMTP Receiver source)", job.FromAddress)
+		}
+		sendErr = c.mailRouter.SendMail(&job)
+	}
+
+	if sendErr != nil {
+		log.Printf("Failed to send mail %s: %v", job.MailID, sendErr)
+		c.handleRetry(ctx, msg, &job, sendErr)
 		return
 	}
 

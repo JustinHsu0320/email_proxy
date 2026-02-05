@@ -16,18 +16,19 @@ import (
 
 // Dependencies 路由依賴
 type Dependencies struct {
-	Config       *config.Config
-	DB           *gorm.DB
-	OAuthService *microsoft.OAuthService
-	QueueService *services.QueueService
-	KeyDBService *services.KeyDBService
+	Config              *config.Config
+	DB                  *gorm.DB
+	OAuthService        *microsoft.OAuthService
+	QueueService        *services.QueueService
+	KeyDBService        *services.KeyDBService
+	SenderConfigService *services.EmailSenderConfigService
 }
 
 // RegisterRoutes 註冊所有路由
 func RegisterRoutes(router *gin.Engine, deps *Dependencies) {
 	// 初始化 Handlers
 	healthHandler := handlers.NewHealthHandler(deps.Config, deps.DB, deps.KeyDBService)
-	mailHandler := handlers.NewMailHandler(deps.Config, deps.DB, deps.QueueService, deps.KeyDBService)
+	mailHandler := handlers.NewMailHandler(deps.Config, deps.DB, deps.QueueService, deps.KeyDBService, deps.SenderConfigService)
 	authHandler := handlers.NewAuthHandler(deps.Config, deps.DB)
 
 	// 公開路由
@@ -56,6 +57,16 @@ func RegisterRoutes(router *gin.Engine, deps *Dependencies) {
 			auth.GET("/token/:id", authHandler.GetToken)
 			auth.DELETE("/token/:id", authHandler.RevokeToken)
 			auth.GET("/tokens", authHandler.ListTokens)
+
+			// Sender Config 管理 API
+			if deps.SenderConfigService != nil {
+				senderConfigHandler := handlers.NewSenderConfigHandler(deps.SenderConfigService)
+				auth.POST("/sender-config", senderConfigHandler.CreateSenderConfig)
+				auth.GET("/sender-configs", senderConfigHandler.ListSenderConfigs)
+				auth.GET("/sender-config/:id", senderConfigHandler.GetSenderConfig)
+				auth.PUT("/sender-config/:id", senderConfigHandler.UpdateSenderConfig)
+				auth.DELETE("/sender-config/:id", senderConfigHandler.DeleteSenderConfig)
+			}
 		}
 	}
 }

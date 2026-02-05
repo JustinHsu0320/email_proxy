@@ -1,7 +1,7 @@
 # .docker/docker-compose.yml
 # 郵件代理系統本地開發環境
 
-version: '3.8'
+version: "3.8"
 
 services:
   # ============================================
@@ -23,16 +23,48 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 512M
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 256M
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # ============================================
+  # Database Migration
+  # 每次啟動時自動執行所有 migration 檔案
+  # ============================================
+  db-migrate:
+    image: postgres:15-alpine
+    container_name: mail-proxy-db-migrate
+    volumes:
+      - ../migrations:/migrations:ro
+    environment:
+      - PGHOST=postgresql
+      - PGUSER=${POSTGRES_USER}
+      - PGPASSWORD=${POSTGRES_PASSWORD}
+      - PGDATABASE=${POSTGRES_DB}
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "=========================================="
+        echo "Running database migrations..."
+        echo "=========================================="
+        for f in /migrations/*.sql; do
+          echo "[Migration] Executing: $$f"
+          psql -f "$$f" 2>&1 || echo "[Migration] Warning: Some statements may have been skipped (already exists)"
+        done
+        echo "=========================================="
+        echo "Database migrations complete!"
+        echo "=========================================="
+    restart: "no"
 
   # ============================================
   # KeyDB (Redis 相容)
@@ -49,13 +81,13 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 256M
         reservations:
-          cpus: '0.1'
+          cpus: "0.1"
           memory: 128M
     healthcheck:
-      test: [ "CMD", "keydb-cli", "ping" ]
+      test: ["CMD", "keydb-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -78,13 +110,13 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 512M
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 256M
     healthcheck:
-      test: [ "CMD", "rabbitmq-diagnostics", "status" ]
+      test: ["CMD", "rabbitmq-diagnostics", "status"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -112,6 +144,8 @@ services:
       - ATTACHMENT_PATH=/app/attachments
       - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB}
       - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - ORG_EMAIL_DOMAIN=${ORG_EMAIL_DOMAIN}
     volumes:
       - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
     ports:
@@ -126,13 +160,13 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 256M
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 128M
     healthcheck:
-      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:8080/health" ]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -162,6 +196,7 @@ services:
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY}
       - WORKER_PREFETCH=${WORKER_PREFETCH}
       - MAX_RETRY_COUNT=${MAX_RETRY_COUNT}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     volumes:
       - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
     depends_on:
@@ -174,10 +209,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
+          cpus: "0.5"
           memory: 256M
         reservations:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 128M
 
   # ============================================
@@ -221,10 +256,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.25'
+          cpus: "0.25"
           memory: 256M
         reservations:
-          cpus: '0.1'
+          cpus: "0.1"
           memory: 64M
 
 volumes:

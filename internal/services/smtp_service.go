@@ -22,7 +22,8 @@ import (
 // 實作 MailSender interface
 type GraphMailService struct {
 	cfg          *config.Config
-	oauthService *microsoft.OAuthService
+	oauthService *microsoft.OAuthService // 用於 SMTP Receiver (環境變數配置)
+	oauthManager *microsoft.OAuthManager // 用於 API 請求 (資料庫配置)
 	httpClient   *http.Client
 }
 
@@ -31,6 +32,7 @@ func NewGraphMailService(cfg *config.Config, oauthService *microsoft.OAuthServic
 	return &GraphMailService{
 		cfg:          cfg,
 		oauthService: oauthService,
+		oauthManager: microsoft.DefaultOAuthManager,
 		httpClient:   &http.Client{},
 	}
 }
@@ -226,5 +228,64 @@ func (s *GraphMailService) loadAttachments(job *models.MailJob, message *GraphMe
 	}
 
 	message.Attachments = attachments
+	return nil
+}
+
+// SendMailWithConfig 使用指定的 OAuth 配置發送郵件 (用於 API 請求)
+func (s *GraphMailService) SendMailWithConfig(job *models.MailJob, tenantID, clientID, clientSecret string) error {
+	// 從 OAuthManager 取得 Access Token
+	accessToken, err := s.oauthManager.GetAccessToken(tenantID, clientID, clientSecret)
+	if err != nil {
+		return fmt.Errorf("failed to get access token: %w", err)
+	}
+
+	// 建立 Graph API 請求
+	mailRequest := s.buildGraphRequest(job)
+
+	// 讀取附件
+	if err := s.loadAttachments(job, &mailRequest.Message); err != nil {
+		return fmt.Errorf("failed to load attachments: %w", err)
+	}
+
+	// 序列化請求
+	jsonBody, err := json.Marshal(mailRequest)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Graph API 端點
+	graphURL := fmt.Sprintf(
+		"https://graph.microsoft.com/v1.0/users/%s/sendMail",
+		job.FromAddress,
+	)
+
+	// 建立 HTTP 請求
+	req, err := http.NewRequest("POST", graphURL, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	// 發送請求
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 檢查回應 (202 Accepted 表示成功)
+	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+
+		var errResp GraphErrorResponse
+		if err := json.Unmarshal(body, &errResp); err == nil && errResp.Error.Message != "" {
+			return fmt.Errorf("Graph API error (%s): %s", errResp.Error.Code, errResp.Error.Message)
+		}
+
+		return fmt.Errorf("Graph API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
 	return nil
 }

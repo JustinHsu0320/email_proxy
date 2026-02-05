@@ -35,6 +35,38 @@ services:
       retries: 5
 
   # ============================================
+  # Database Migration
+  # 每次啟動時自動執行所有 migration 檔案
+  # ============================================
+  db-migrate:
+    image: postgres:15-alpine
+    container_name: mail-proxy-db-migrate
+    volumes:
+      - ../migrations:/migrations:ro
+    environment:
+      - PGHOST=postgresql
+      - PGUSER=${POSTGRES_USER}
+      - PGPASSWORD=${POSTGRES_PASSWORD}
+      - PGDATABASE=${POSTGRES_DB}
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "=========================================="
+        echo "Running database migrations..."
+        echo "=========================================="
+        for f in /migrations/*.sql; do
+          echo "[Migration] Executing: $$f"
+          psql -f "$$f" 2>&1 || echo "[Migration] Warning: Some statements may have been skipped (already exists)"
+        done
+        echo "=========================================="
+        echo "Database migrations complete!"
+        echo "=========================================="
+    restart: "no"
+
+  # ============================================
   # KeyDB (Redis 相容)
   # ============================================
   keydb:
@@ -116,6 +148,8 @@ services:
       - ATTACHMENT_PATH=/app/attachments
       - MAX_ATTACHMENT_SIZE_MB=${MAX_ATTACHMENT_SIZE_MB}
       - JWT_SECRET=${JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - ORG_EMAIL_DOMAIN=${ORG_EMAIL_DOMAIN}
       # Proxy 設定（用於外部 API 呼叫）
       - HTTP_PROXY=${HTTP_PROXY}
       - HTTPS_PROXY=${HTTPS_PROXY}
@@ -123,7 +157,7 @@ services:
     volumes:
       - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
     ports:
-      - "8080:8080"
+      - "80:8080"
     depends_on:
       postgresql:
         condition: service_healthy
@@ -233,8 +267,8 @@ services:
     volumes:
       - ${ATTACHMENT_VOLUME_PATH}:/app/attachments
     ports:
-      - "${SMTP_INBOUND_PORT:-2525}:2525"
-      - "${SMTP_INBOUND_TLS_PORT:-1587}:1587"
+      - "${SMTP_INBOUND_PORT:-25}:2525"
+      - "${SMTP_INBOUND_TLS_PORT:-587}:1587"
     depends_on:
       postgresql:
         condition: service_healthy

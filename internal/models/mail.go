@@ -41,6 +41,9 @@ type Mail struct {
 	ClientName   string            `json:"client_name,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty" gorm:"type:jsonb"`
 
+	// Sender Config 關聯 (API 請求時設定)
+	SenderConfigID *uuid.UUID `json:"sender_config_id,omitempty" gorm:"type:uuid"`
+
 	// 關聯
 	Attachments []Attachment `json:"attachments,omitempty" gorm:"foreignKey:MailID"`
 }
@@ -79,6 +82,9 @@ type MailJob struct {
 	Attachments  []AttachmentInfo  `json:"attachments,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
 	RetryCount   int               `json:"retry_count"`
+
+	// Sender Config ID (API 請求時設定，用於 Worker 查詢 OAuth 配置)
+	SenderConfigID string `json:"sender_config_id,omitempty"`
 }
 
 // AttachmentInfo 附件資訊

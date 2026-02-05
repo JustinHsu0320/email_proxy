@@ -65,8 +65,22 @@ func main() {
 		log.Printf("WARNING: Mail router configuration issue: %v", err)
 	}
 
+	// 初始化 SenderConfigService (用於 API 多租戶 OAuth)
+	var senderConfigService *services.EmailSenderConfigService
+	if cfg.EncryptionKey != "" {
+		encryptionService, err := services.NewEncryptionService(cfg.EncryptionKey)
+		if err != nil {
+			log.Printf("Warning: Failed to initialize encryption service: %v", err)
+		} else {
+			senderConfigService = services.NewEmailSenderConfigService(cfg, db, encryptionService)
+			log.Println("SenderConfigService initialized for Worker")
+		}
+	} else {
+		log.Println("Warning: ENCRYPTION_KEY not set, database OAuth config will not work")
+	}
+
 	// 初始化 Consumer
-	consumer := worker.NewConsumer(cfg, db, oauthService, mailRouter, keydbService)
+	consumer := worker.NewConsumer(cfg, db, oauthService, mailRouter, keydbService, senderConfigService, graphMailService)
 
 	// 啟動 Consumer
 	go func() {

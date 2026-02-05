@@ -527,6 +527,179 @@
         }
       ],
       "description": "Token 管理 API (需要 admin 權限)"
+    },
+    {
+      "name": "Sender Config",
+      "item": [
+        {
+          "name": "建立 Sender Config",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"sender_email\": \"noreply@ptc-nec.com.tw\",\n    \"ms_tenant_id\": \"your-tenant-id\",\n    \"ms_client_id\": \"your-client-id\",\n    \"ms_client_secret\": \"your-client-secret\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-config"]
+            },
+            "description": "為當前 Client 建立 Microsoft OAuth 發送者配置。需要 admin 權限。\n\n### 請求參數\n| 欄位 | 類型 | 必填 | 說明 |\n|------|------|------|------|\n| sender_email | string | ✅ | 發送者 Email (需為組織網域) |\n| ms_tenant_id | string | ✅ | Microsoft Azure Tenant ID |\n| ms_client_id | string | ✅ | Microsoft App Client ID |\n| ms_client_secret | string | ✅ | Microsoft App Client Secret |"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/sender-config",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "sender-config"]
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n        \"sender_email\": \"noreply@ptc-nec.com.tw\",\n        \"ms_tenant_id\": \"your-tenant-id\",\n        \"ms_client_id\": \"your-client-id\",\n        \"ms_client_secret_masked\": \"your****cret\",\n        \"is_active\": true,\n        \"created_at\": \"2026-02-05T10:00:00Z\"\n    }\n}"
+            }
+          ]
+        },
+        {
+          "name": "列出 Sender Configs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-configs",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-configs"]
+            },
+            "description": "列出當前 Client 的所有 sender 配置。需要 admin 權限。"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/sender-configs",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "sender-configs"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"total\": 1,\n    \"data\": [\n        {\n            \"id\": \"550e8400-e29b-41d4-a716-446655440000\",\n            \"sender_email\": \"noreply@ptc-nec.com.tw\",\n            \"ms_tenant_id\": \"your-tenant-id\",\n            \"ms_client_id\": \"your-client-id\",\n            \"ms_client_secret_masked\": \"****\",\n            \"is_active\": true,\n            \"created_at\": \"2026-02-05T10:00:00Z\"\n        }\n    ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "查詢 Sender Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-config/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-config", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "550e8400-e29b-41d4-a716-446655440000",
+                  "description": "Sender Config ID (UUID)"
+                }
+              ]
+            },
+            "description": "查詢指定 Sender Config 的詳細資訊。需要 admin 權限。"
+          },
+          "response": []
+        },
+        {
+          "name": "更新 Sender Config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"ms_client_secret\": \"new-client-secret\",\n    \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-config/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-config", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "550e8400-e29b-41d4-a716-446655440000",
+                  "description": "Sender Config ID (UUID)"
+                }
+              ]
+            },
+            "description": "更新指定 Sender Config。需要 admin 權限。\n\n### 可更新欄位\n- ms_tenant_id\n- ms_client_id\n- ms_client_secret\n- is_active"
+          },
+          "response": []
+        },
+        {
+          "name": "刪除 Sender Config",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-config/:id",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-config", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "550e8400-e29b-41d4-a716-446655440000",
+                  "description": "Sender Config ID (UUID)"
+                }
+              ]
+            },
+            "description": "刪除指定的 Sender Config。需要 admin 權限。"
+          },
+          "response": [
+            {
+              "name": "成功",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{base_url}}/api/v1/auth/sender-config/550e8400-e29b-41d4-a716-446655440000",
+                  "host": ["{{base_url}}"],
+                  "path": ["api", "v1", "auth", "sender-config", "550e8400-e29b-41d4-a716-446655440000"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"Sender config 已刪除\"\n}"
+            }
+          ]
+        }
+      ],
+      "description": "Sender OAuth 配置管理 API (需要 admin 權限)"
     }
   ]
 }

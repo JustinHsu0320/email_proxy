@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,19 +25,21 @@ import (
 
 // MailHandler 郵件 Handler
 type MailHandler struct {
-	cfg          *config.Config
-	db           *gorm.DB
-	queueService *services.QueueService
-	keydbService *services.KeyDBService
+	cfg                 *config.Config
+	db                  *gorm.DB
+	queueService        *services.QueueService
+	keydbService        *services.KeyDBService
+	senderConfigService *services.EmailSenderConfigService
 }
 
 // NewMailHandler 建立 Mail Handler
-func NewMailHandler(cfg *config.Config, db *gorm.DB, queueService *services.QueueService, keydbService *services.KeyDBService) *MailHandler {
+func NewMailHandler(cfg *config.Config, db *gorm.DB, queueService *services.QueueService, keydbService *services.KeyDBService, senderConfigService *services.EmailSenderConfigService) *MailHandler {
 	return &MailHandler{
-		cfg:          cfg,
-		db:           db,
-		queueService: queueService,
-		keydbService: keydbService,
+		cfg:                 cfg,
+		db:                  db,
+		queueService:        queueService,
+		keydbService:        keydbService,
+		senderConfigService: senderConfigService,
 	}
 }
 
@@ -75,21 +78,57 @@ func (h *MailHandler) Send(c *gin.Context) {
 	// 取得 client 資訊
 	clientID, _ := c.Get("client_id")
 	clientName, _ := c.Get("client_name")
+	clientTokenIDStr, _ := c.Get("client_token_id")
+
+	// 檢查是否為組織網域，若是則必須有 sender config
+	var senderConfigID *uuid.UUID
+	if strings.HasSuffix(strings.ToLower(req.From), strings.ToLower(h.cfg.OrgEmailDomain)) {
+		if h.senderConfigService == nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "sender_not_configured",
+				"message": "Sender config service not available",
+			})
+			return
+		}
+
+		clientTokenID, err := uuid.Parse(clientTokenIDStr.(string))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "invalid_token",
+				"message": "Invalid client token",
+			})
+			return
+		}
+
+		senderConfig, err := h.senderConfigService.GetBySenderEmail(clientTokenID, req.From)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error":   "sender_not_configured",
+				"message": fmt.Sprintf("Sender '%s' is not configured for this client. Please configure sender in /api/v1/auth/sender-config first.", req.From),
+			})
+			return
+		}
+		senderConfigID = &senderConfig.ID
+	}
 
 	// 建立郵件記錄
 	mail := models.Mail{
-		ID:           uuid.New(),
-		FromAddress:  req.From,
-		ToAddresses:  pq.StringArray(req.To),
-		CCAddresses:  pq.StringArray(req.CC),
-		BCCAddresses: pq.StringArray(req.BCC),
-		Subject:      req.Subject,
-		Body:         req.Body,
-		HTML:         req.HTML,
-		Status:       models.MailStatusQueued,
-		ClientID:     clientID.(string),
-		ClientName:   clientName.(string),
-		Metadata:     req.Metadata,
+		ID:             uuid.New(),
+		FromAddress:    req.From,
+		ToAddresses:    pq.StringArray(req.To),
+		CCAddresses:    pq.StringArray(req.CC),
+		BCCAddresses:   pq.StringArray(req.BCC),
+		Subject:        req.Subject,
+		Body:           req.Body,
+		HTML:           req.HTML,
+		Status:         models.MailStatusQueued,
+		ClientID:       clientID.(string),
+		ClientName:     clientName.(string),
+		Metadata:       req.Metadata,
+		SenderConfigID: senderConfigID,
 	}
 
 	// 處理附件
@@ -183,6 +222,9 @@ func (h *MailHandler) Send(c *gin.Context) {
 		Attachments:  attachments,
 		Metadata:     req.Metadata,
 		RetryCount:   0,
+	}
+	if senderConfigID != nil {
+		job.SenderConfigID = senderConfigID.String()
 	}
 
 	// 發送到 RabbitMQ

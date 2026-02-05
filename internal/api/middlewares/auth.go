@@ -104,6 +104,7 @@ func JWTAuth(cfg *config.Config, db *gorm.DB) gin.HandlerFunc {
 		c.Set("client_name", claims["client_name"])
 		c.Set("department", claims["department"])
 		c.Set("permissions", claims["permissions"])
+		c.Set("client_token_id", clientToken.ID.String())
 
 		c.Next()
 	}

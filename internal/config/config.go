@@ -53,6 +53,9 @@ type Config struct {
 	// JWT
 	JWTSecret string
 
+	// Encryption
+	EncryptionKey string
+
 	// Admin Token 初始化
 	InitAdminToken bool
 	AdminTokenName string
@@ -110,6 +113,9 @@ func Load() *Config {
 
 		// JWT
 		JWTSecret: getEnv("JWT_SECRET", "change-this-secret"),
+
+		// Encryption (32 bytes for AES-256)
+		EncryptionKey: getEnv("ENCRYPTION_KEY", ""),
 
 		// Admin Token 初始化
 		InitAdminToken: getEnvAsBool("INIT_ADMIN_TOKEN", true),

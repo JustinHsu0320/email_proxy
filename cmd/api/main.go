@@ -55,12 +55,26 @@ func main() {
 	}
 	defer queueService.Close()
 
-	// 初始化 OAuth 服務
+	// 初始化 OAuth 服務 (用於 SMTP Receiver fallback)
 	oauthService := microsoft.NewOAuthService(
 		cfg.MicrosoftTenantID,
 		cfg.MicrosoftClientID,
 		cfg.MicrosoftClientSecret,
 	)
+
+	// 初始化 SenderConfigService (用於 API 多租戶 OAuth)
+	var senderConfigService *services.EmailSenderConfigService
+	if cfg.EncryptionKey != "" {
+		encryptionService, err := services.NewEncryptionService(cfg.EncryptionKey)
+		if err != nil {
+			log.Printf("Warning: Failed to initialize encryption service: %v", err)
+		} else {
+			senderConfigService = services.NewEmailSenderConfigService(cfg, db, encryptionService)
+			log.Println("SenderConfigService initialized successfully")
+		}
+	} else {
+		log.Println("Warning: ENCRYPTION_KEY not set, sender config API will not be available")
+	}
 
 	// 初始化 Gin
 	if cfg.Env == "production" {
@@ -73,11 +87,12 @@ func main() {
 
 	// 註冊路由
 	routes.RegisterRoutes(router, &routes.Dependencies{
-		Config:       cfg,
-		DB:           db,
-		OAuthService: oauthService,
-		QueueService: queueService,
-		KeyDBService: keydbService,
+		Config:              cfg,
+		DB:                  db,
+		OAuthService:        oauthService,
+		QueueService:        queueService,
+		KeyDBService:        keydbService,
+		SenderConfigService: senderConfigService,
 	})
 
 	// 建立 HTTP Server

@@ -88,9 +88,68 @@ POST   /api/v1/auth/token          # 建立新 Token
 GET    /api/v1/auth/token/:id      # 查詢 Token 資訊
 DELETE /api/v1/auth/token/:id      # 撤銷 Token
 GET    /api/v1/auth/tokens         # 列出所有 Token
+
+POST   /api/v1/auth/sender-config       # 建立 Sender OAuth 配置
+GET    /api/v1/auth/sender-configs      # 列出所有 Sender 配置
+GET    /api/v1/auth/sender-config/:id   # 查詢單一 Sender 配置
+PUT    /api/v1/auth/sender-config/:id   # 更新 Sender 配置
+DELETE /api/v1/auth/sender-config/:id   # 刪除 Sender 配置
 ```
 
-### 1.1 健康探針 (Public Endpoints)
+### 1.1 Sender Email 路由判斷流程
+
+下圖說明郵件發送時，系統如何根據來源 (API / SMTP) 和寄件者信箱 (組織網域 / 外部網域) 決定使用哪種發送方式：
+
+```mermaid
+flowchart TD
+    subgraph Client["📧 郵件來源"]
+        API["API Client<br/>(REST API)"]
+        SMTP["SMTP Client<br/>(Legacy System)"]
+    end
+
+    subgraph Processing["🔄 處理流程"]
+        API --> CheckOrg{{"from 是組織網域<br/>(@ptc-nec.com.tw)?"}}
+        SMTP --> EnvOAuth["使用環境變數<br/>MICROSOFT_* OAuth"]
+        
+        CheckOrg -->|Yes| DBConfig{{"資料庫有<br/>Sender Config?"}}
+        CheckOrg -->|No| SendGrid["SendGrid API"]
+        
+        DBConfig -->|Yes| DBOAuth["使用資料庫<br/>Sender Config OAuth"]
+        DBConfig -->|No| Error["❌ 錯誤<br/>sender_not_configured"]
+    end
+
+    subgraph Sending["📤 發送方式"]
+        EnvOAuth --> GraphAPI1["Microsoft Graph API<br/>(環境變數憑證)"]
+        DBOAuth --> GraphAPI2["Microsoft Graph API<br/>(資料庫憑證)"]
+        SendGrid --> SendGridAPI["SendGrid API"]
+    end
+
+    subgraph Result["✅ 結果"]
+        GraphAPI1 --> Success["郵件發送成功"]
+        GraphAPI2 --> Success
+        SendGridAPI --> Success
+        Error --> Fail["郵件發送失敗"]
+    end
+
+    style API fill:#4CAF50,color:#fff
+    style SMTP fill:#2196F3,color:#fff
+    style SendGrid fill:#1A82E2,color:#fff
+    style GraphAPI1 fill:#0078D4,color:#fff
+    style GraphAPI2 fill:#0078D4,color:#fff
+    style Success fill:#4CAF50,color:#fff
+    style Error fill:#f44336,color:#fff
+    style Fail fill:#f44336,color:#fff
+```
+
+| 來源 | 組織網域 | OAuth 配置來源 | 發送方式 |
+|------|----------|----------------|----------|
+| API Client | ✅ `@ptc-nec.com.tw` | 資料庫 `email_sender_configs` | Microsoft Graph API |
+| API Client | ❌ 外部網域 | N/A | SendGrid API |
+| SMTP Client | ✅ `@ptc-nec.com.tw` | 環境變數 `MICROSOFT_*` | Microsoft Graph API |
+
+> **注意**: SMTP Client 為向後兼容設計，使用環境變數中的 Microsoft OAuth 配置。API Client 則必須先透過 Sender Config API 設定 OAuth 憑證。
+
+### 1.2 健康探針 (Public Endpoints)
 `GET /health`
 
 用於系統健康狀態監控，**無需認證**。
@@ -471,7 +530,114 @@ GET /api/v1/mail/history?page=1&limit=10&status=sent
 
 ---
 
-## 5. 系統流程圖 (Sequence Diagram)
+## 5. Sender Config 管理 API (Admin Only)
+
+> **認證要求**: 需攜帶具備 `admin` 權限的 JWT Token
+
+### 5.1 建立 Sender Config
+`POST /api/v1/auth/sender-config`
+
+為當前 Client 建立 Microsoft OAuth 發送者配置。組織網域 (`@ptc-nec.com.tw`) 的 API 發送必須先配置 sender config。
+
+**請求參數:**
+| 欄位 | 類型 | 必填 | 說明 |
+| :--- | :--- | :---: | :--- |
+| `sender_email` | string | ✓ | 發送者 Email (需為組織網域) |
+| `ms_tenant_id` | string | ✓ | Microsoft Azure Tenant ID |
+| `ms_client_id` | string | ✓ | Microsoft App Client ID |
+| `ms_client_secret` | string | ✓ | Microsoft App Client Secret |
+
+**請求範例:**
+```json
+{
+  "sender_email": "noreply@ptc-nec.com.tw",
+  "ms_tenant_id": "your-tenant-id",
+  "ms_client_id": "your-client-id",
+  "ms_client_secret": "your-client-secret"
+}
+```
+
+**回應範例 (Success - 201):**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "sender_email": "noreply@ptc-nec.com.tw",
+    "ms_tenant_id": "your-tenant-id",
+    "ms_client_id": "your-client-id",
+    "ms_client_secret_masked": "your****cret",
+    "is_active": true,
+    "created_at": "2026-02-05T10:00:00Z"
+  }
+}
+```
+
+---
+
+### 5.2 列出 Sender Configs
+`GET /api/v1/auth/sender-configs`
+
+列出當前 Client 的所有 sender 配置。
+
+**回應範例:**
+```json
+{
+  "success": true,
+  "total": 2,
+  "data": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "sender_email": "noreply@ptc-nec.com.tw",
+      "ms_tenant_id": "your-tenant-id",
+      "ms_client_id": "your-client-id",
+      "ms_client_secret_masked": "****",
+      "is_active": true,
+      "created_at": "2026-02-05T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### 5.3 查詢 Sender Config
+`GET /api/v1/auth/sender-config/:id`
+
+**路徑參數:**
+| 參數 | 說明 |
+| :--- | :--- |
+| `id` | Sender Config UUID |
+
+---
+
+### 5.4 更新 Sender Config
+`PUT /api/v1/auth/sender-config/:id`
+
+**請求參數 (都是可選):**
+| 欄位 | 類型 | 說明 |
+| :--- | :--- | :--- |
+| `ms_tenant_id` | string | 新的 Tenant ID |
+| `ms_client_id` | string | 新的 Client ID |
+| `ms_client_secret` | string | 新的 Client Secret |
+| `is_active` | boolean | 是否啟用 |
+
+---
+
+### 5.5 刪除 Sender Config
+`DELETE /api/v1/auth/sender-config/:id`
+
+**回應範例 (Success - 200):**
+```json
+{
+  "success": true,
+  "message": "Sender config 已刪除"
+}
+```
+
+---
+
+## 6. 系統流程圖 (Sequence Diagram)
 
 ```mermaid
 sequenceDiagram

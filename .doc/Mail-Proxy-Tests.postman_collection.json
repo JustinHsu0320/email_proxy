@@ -1051,6 +1051,254 @@
         }
       ],
       "description": "測試後清理作業"
+    },
+    {
+      "name": "6. Sender Config API Tests (Admin)",
+      "item": [
+        {
+          "name": "6.1 Create Sender Config - Success (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response matches CreateSenderConfigResponse schema', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', true);",
+                  "    pm.expect(jsonData).to.have.property('data');",
+                  "    pm.expect(jsonData.data).to.have.property('id');",
+                  "    pm.expect(jsonData.data).to.have.property('sender_email');",
+                  "    pm.expect(jsonData.data).to.have.property('ms_tenant_id');",
+                  "    pm.expect(jsonData.data).to.have.property('ms_client_id');",
+                  "    pm.expect(jsonData.data).to.have.property('ms_client_secret_masked');",
+                  "});",
+                  "",
+                  "pm.test('[Security] Client secret is masked', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data.ms_client_secret_masked).to.include('****');",
+                  "});",
+                  "",
+                  "// 儲存 sender config id 供後續測試使用",
+                  "if (pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('created_sender_config_id', jsonData.data.id);",
+                  "    console.log('[Test] Created sender_config_id:', jsonData.data.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"sender_email\": \"test-sender@ptc-nec.com.tw\",\n    \"ms_tenant_id\": \"test-tenant-id\",\n    \"ms_client_id\": \"test-client-id\",\n    \"ms_client_secret\": \"test-client-secret\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-config"]
+            }
+          }
+        },
+        {
+          "name": "6.2 List Sender Configs - Success (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response matches ListSenderConfigsResponse schema', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', true);",
+                  "    pm.expect(jsonData).to.have.property('total');",
+                  "    pm.expect(jsonData).to.have.property('data');",
+                  "    pm.expect(jsonData.data).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('[Business] At least one sender config exists', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.total).to.be.at.least(1);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-configs",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-configs"]
+            }
+          }
+        },
+        {
+          "name": "6.3 Get Sender Config - Success (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response has sender config data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', true);",
+                  "    pm.expect(jsonData).to.have.property('data');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-config/{{created_sender_config_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-config", "{{created_sender_config_id}}"]
+            }
+          }
+        },
+        {
+          "name": "6.4 Update Sender Config - Success (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response has updated data', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', true);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "PUT",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"ms_client_secret\": \"updated-client-secret\",\n    \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-config/{{created_sender_config_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-config", "{{created_sender_config_id}}"]
+            }
+          }
+        },
+        {
+          "name": "6.5 Delete Sender Config - Success (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Response has success message', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', true);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{admin_token}}", "type": "string"}]
+            },
+            "method": "DELETE",
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-config/{{created_sender_config_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-config", "{{created_sender_config_id}}"]
+            }
+          }
+        },
+        {
+          "name": "6.6 Create Sender Config - Permission Denied (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('[Status] Returns 403 Forbidden', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test('[Contract] Error response has permission_denied', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success', false);",
+                  "    pm.expect(jsonData).to.have.property('error', 'permission_denied');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{"key": "token", "value": "{{client_token}}", "type": "string"}]
+            },
+            "method": "POST",
+            "header": [{"key": "Content-Type", "value": "application/json"}],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"sender_email\": \"test@ptc-nec.com.tw\",\n    \"ms_tenant_id\": \"test\",\n    \"ms_client_id\": \"test\",\n    \"ms_client_secret\": \"test\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sender-config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sender-config"]
+            },
+            "description": "一般 Client Token 嘗試建立 Sender Config (需要 admin 權限)"
+          }
+        }
+      ],
+      "description": "Sender Config API 測試 (需要 admin 權限)"
     }
   ]
 }

@@ -263,7 +263,18 @@ DELETE /api/v1/auth/token/:id      # 撤銷 Token
 GET    /api/v1/auth/tokens         # 列出所有 Token
 ```
 
-#### 3.2.4 Client 追蹤
+#### 3.2.4 Sender Config 管理 API (多租戶 OAuth)
+```
+POST   /api/v1/auth/sender-config       # 建立 Sender OAuth 配置
+GET    /api/v1/auth/sender-configs      # 列出所有 Sender 配置
+GET    /api/v1/auth/sender-config/:id   # 查詢單一 Sender 配置
+PUT    /api/v1/auth/sender-config/:id   # 更新 Sender 配置
+DELETE /api/v1/auth/sender-config/:id   # 刪除 Sender 配置
+```
+
+> **說明**: 組織網域 (`@ptc-nec.com.tw`) 的 API 發送必須先配置 sender config，以指定 Microsoft OAuth 憑證。SMTP Receiver 仍使用環境變數配置。每個 Client 可設定多組 sender config，對應不同的發送者信箱。
+
+#### 3.2.5 Client 追蹤
 每次 API 呼叫都會記錄:
 - `client_id`: Client 唯一識別碼
 - `client_name`: Client 名稱
