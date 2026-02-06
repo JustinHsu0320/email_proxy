@@ -112,32 +112,19 @@ func (s *OAuthService) IsConfigured() bool {
 }
 
 // OAuthManager 多租戶 OAuth 管理器
-// 使用 sync.Map 管理多組 OAuthService，以 tenantID:clientID 作為 key
-type OAuthManager struct {
-	services sync.Map // map[string]*OAuthService
-}
+// 不使用快取，每次都建立新的 OAuthService 以確保使用最新的憑證
+type OAuthManager struct{}
 
 // NewOAuthManager 建立 OAuth 管理器
 func NewOAuthManager() *OAuthManager {
 	return &OAuthManager{}
 }
 
-// GetOrCreateService 取得或建立 OAuthService
-// 若 key 已存在則直接回傳，否則建立新的 OAuthService
+// GetOrCreateService 建立 OAuthService
+// 每次都建立新的 OAuthService，不使用快取
 func (m *OAuthManager) GetOrCreateService(tenantID, clientID, clientSecret string) *OAuthService {
-	key := tenantID + ":" + clientID
-
-	// 嘗試從快取取得
-	if existing, ok := m.services.Load(key); ok {
-		return existing.(*OAuthService)
-	}
-
-	// 建立新的 OAuthService
-	newService := NewOAuthService(tenantID, clientID, clientSecret)
-
-	// 嘗試存入快取（若同時有其他 goroutine 也在建立，使用已存在的）
-	actual, _ := m.services.LoadOrStore(key, newService)
-	return actual.(*OAuthService)
+	// 每次都建立新的 OAuthService，確保使用傳入的最新憑證
+	return NewOAuthService(tenantID, clientID, clientSecret)
 }
 
 // GetAccessToken 根據配置取得 Access Token
